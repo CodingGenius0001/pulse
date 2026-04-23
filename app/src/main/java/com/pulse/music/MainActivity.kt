@@ -14,12 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -62,44 +63,49 @@ private fun AppEntry() {
     }
 }
 
+/**
+ * First-run gate asking for audio access. Uses theme-aware colors so it
+ * matches the user's selected Light/Dark preference even before they reach
+ * the main app.
+ */
 @Composable
 private fun PermissionGate(onRequest: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color(0xFF08080A))
+            .background(MaterialTheme.colorScheme.background)
             .padding(32.dp),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 text = "Pulse",
-                color = androidx.compose.ui.graphics.Color(0xFFFAFAF8),
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 32.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "Needs access to your music library to play songs from your device.",
-                color = androidx.compose.ui.graphics.Color(0xFF888881),
+                text = "Pulse needs access to your audio library to play songs from your device. Your music stays on your phone.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 15.sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center,
             )
             Button(
                 onClick = onRequest,
                 shape = RoundedCornerShape(999.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = androidx.compose.ui.graphics.Color(0xFFFAFAF8),
-                    contentColor = androidx.compose.ui.graphics.Color(0xFF0A0A0C)
+                    containerColor = MaterialTheme.colorScheme.onBackground,
+                    contentColor = MaterialTheme.colorScheme.background,
                 ),
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 8.dp),
             ) {
                 Text(
                     text = "Grant access",
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
         }

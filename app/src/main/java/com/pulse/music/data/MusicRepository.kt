@@ -16,12 +16,21 @@ class MusicRepository(
     // -------- Scanning --------
 
     /**
-     * Triggers a full rescan. Reads fresh data from MediaStore, merges it
-     * into Room (preserving liked/playCount state), and prunes deleted files.
+     * Triggers a full rescan. Reads fresh data from MediaStore (strict
+     * Pulse-folder-only), merges it into Room (preserving liked/playCount
+     * state), and prunes deleted files.
+     *
+     * Returns the number of songs found.
      */
-    suspend fun rescan(folderFilter: String? = "/Pulse/"): Int {
-        val scanned = scanner.scanAll(folderFilter)
-        if (scanned.isEmpty()) return 0
+    suspend fun rescan(): Int {
+        val scanned = scanner.scanAll()
+        if (scanned.isEmpty()) {
+            // Folder empty or doesn't exist — clear the library so stale
+            // songs from a previous scan don't linger.
+            dao.deleteSongsNotIn(emptyList())
+            ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
+            return 0
+        }
 
         // Preserve user-state (likes, play counts) from existing rows
         val existing = scanned.map { it.id }.let { ids ->
@@ -45,6 +54,11 @@ class MusicRepository(
 
         return merged.size
     }
+
+    /** Exposes the scanner's folder operations to the UI layer. */
+    fun pulseFolderExists(): Boolean = scanner.pulseFolderExists()
+    fun pulseFolderPath(): String = scanner.preferredPulseFolder().absolutePath
+    fun createPulseFolder(): Boolean = scanner.createPulseFolder()
 
     private suspend fun ensureSystemPlaylist(type: String, name: String) {
         if (dao.getSystemPlaylist(type) == null) {

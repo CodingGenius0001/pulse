@@ -23,7 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.pulse.music.ui.theme.PulseColors
+import com.pulse.music.ui.theme.PulseTheme
 
 /**
  * A group of circular buttons inside a single translucent pill.
@@ -40,8 +40,8 @@ fun PillGroup(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(PulseColors.PillSurface)
-            .border(1.dp, PulseColors.Line, RoundedCornerShape(999.dp))
+            .background(PulseTheme.colors.pillSurface)
+            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(999.dp))
             .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -83,7 +83,7 @@ fun PlayPill(
         modifier = modifier
             .defaultMinSize(minWidth = 88.dp, minHeight = 52.dp)
             .clip(RoundedCornerShape(999.dp))
-            .background(PulseColors.TextPrimary)
+            .background(MaterialTheme.colorScheme.onBackground)
             .clickable(onClick = onClick)
             .padding(horizontal = 22.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center,
@@ -101,7 +101,7 @@ fun CircleButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 38.dp,
-    background: Color = PulseColors.PillSurfaceStrong,
+    background: Color = PulseTheme.colors.pillSurfaceStrong,
     content: @Composable () -> Unit,
 ) {
     Box(
@@ -126,12 +126,12 @@ fun FilterPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (selected) PulseColors.TextPrimary else PulseColors.PillSurface
-    val fg = if (selected) PulseColors.Canvas else PulseColors.TextMuted
+    val bg = if (selected) MaterialTheme.colorScheme.onBackground else PulseTheme.colors.pillSurface
+    val fg = if (selected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant
     val borderStroke = if (selected) {
-        BorderStroke(1.dp, PulseColors.TextPrimary)
+        BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground)
     } else {
-        BorderStroke(1.dp, PulseColors.Line)
+        BorderStroke(1.dp, PulseTheme.colors.line)
     }
     Box(
         modifier = modifier

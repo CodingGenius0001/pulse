@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,14 +34,10 @@ import com.pulse.music.ui.screens.LibraryScreen
 import com.pulse.music.ui.screens.NowPlayingScreen
 import com.pulse.music.ui.screens.SearchScreen
 import com.pulse.music.ui.screens.SettingsScreen
-import com.pulse.music.ui.theme.PulseColors
 
 /**
- * The root of the Compose UI tree. Holds the bottom nav, the main content
- * area with the four destinations, and the mini-player that floats above
- * the tab bar when something is playing.
- *
- * The Now Playing screen is rendered as a modal overlay on top of everything.
+ * Root composable. Owns the nav controller, bottom nav, and mini-player overlay.
+ * Now Playing is rendered as a full-height modal sliding up from the bottom.
  */
 @Composable
 fun PulseApp() {
@@ -56,9 +53,8 @@ fun PulseApp() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PulseColors.Canvas),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        // --- Main scaffold ---
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             Box(modifier = Modifier.weight(1f)) {
                 NavHost(
@@ -86,7 +82,12 @@ fun PulseApp() {
                         )
                     }
                     composable(Destination.Search.route) {
-                        SearchScreen()
+                        SearchScreen(
+                            onSongTap = { songs, index ->
+                                playerVm.playQueue(songs, index)
+                                showNowPlaying = true
+                            },
+                        )
                     }
                     composable(Destination.Settings.route) {
                         SettingsScreen()
@@ -94,7 +95,6 @@ fun PulseApp() {
                 }
             }
 
-            // Mini-player + bottom nav sit together above the nav bar insets
             Column(modifier = Modifier.navigationBarsPadding()) {
                 val currentSong = playbackState.currentSong
                 AnimatedVisibility(
@@ -108,6 +108,7 @@ fun PulseApp() {
                             isPlaying = playbackState.isPlaying,
                             onTap = { showNowPlaying = true },
                             onPlayPause = { playerVm.playOrPause() },
+                            onSkipForward10 = { playerVm.seekForward10() },
                             onNext = { playerVm.next() },
                         )
                     }
@@ -123,22 +124,19 @@ fun PulseApp() {
             }
         }
 
-        // --- Now Playing modal overlay ---
         AnimatedVisibility(
             visible = showNowPlaying && playbackState.currentSong != null,
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            NowPlayingScreen(onBack = { showNowPlaying = false })
+            NowPlayingScreen(
+                onBack = { showNowPlaying = false },
+            )
         }
     }
 }
 
-/**
- * Navigate to a destination. Pops up to the start destination to avoid
- * stacking multiple copies of Home when tabs are tapped.
- */
 private fun navigateTo(navController: NavHostController, destination: Destination) {
     navController.navigate(destination.route) {
         popUpTo(navController.graph.startDestinationId) { saveState = true }

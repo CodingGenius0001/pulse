@@ -3,6 +3,7 @@ package com.pulse.music
 import android.app.Application
 import com.pulse.music.data.PulseDatabase
 import com.pulse.music.data.MusicRepository
+import com.pulse.music.data.UserPreferences
 import com.pulse.music.scanner.MusicScanner
 
 /**
@@ -16,6 +17,7 @@ class PulseApplication : Application() {
     val repository: MusicRepository by lazy {
         MusicRepository(database.musicDao(), scanner)
     }
+    val userPreferences: UserPreferences by lazy { UserPreferences(this) }
 
     override fun onCreate() {
         super.onCreate()

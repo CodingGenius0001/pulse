@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -48,8 +47,7 @@ import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.AlbumMosaic
 import com.pulse.music.ui.components.BottomBarContentPadding
-import com.pulse.music.ui.components.CircleButton
-import com.pulse.music.ui.theme.PulseColors
+import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.util.gradientFor
 
 @Composable
@@ -62,17 +60,19 @@ fun ForYouScreen(
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
     val recentlyPlayed by vm.recentlyPlayed.collectAsStateWithLifecycle()
     val topPlayed by vm.topPlayed.collectAsStateWithLifecycle()
+    val folderState by vm.folderState.collectAsStateWithLifecycle()
+    val userName by vm.userName.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(PulseColors.Canvas),
+            .background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(
             top = 8.dp,
             bottom = BottomBarContentPadding.calculateBottomPadding(),
         ),
     ) {
-        item { AppBar() }
+        item { AppBar(userName = userName) }
 
         item {
             Spacer(Modifier.height(4.dp))
@@ -153,14 +153,19 @@ fun ForYouScreen(
 
         if (allSongs.isEmpty()) {
             item {
-                EmptyState()
+                EmptyState(
+                    folderExists = folderState.exists,
+                    folderPath = folderState.path,
+                    onCreateFolder = { vm.createPulseFolder() },
+                    onRescan = { vm.rescan() },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun AppBar() {
+private fun AppBar(userName: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -170,31 +175,23 @@ private fun AppBar() {
     ) {
         Text(
             text = "Pulse",
-            color = PulseColors.TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             style = MaterialTheme.typography.titleLarge,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CircleButton(onClick = { /* TODO search */ }, size = 36.dp) {
-                Icon(
-                    imageVector = Icons.Outlined.Search,
-                    contentDescription = "Search",
-                    tint = PulseColors.TextPrimary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
             Box(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
-                            listOf(PulseColors.AccentViolet, PulseColors.AccentPink)
+                            listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink)
                         )
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "K",
+                    text = userName.firstOrNull()?.uppercase() ?: "Y",
                     color = Color.White,
                     fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
@@ -259,11 +256,11 @@ private fun HeroCard(
                     modifier = Modifier
                         .size(5.dp)
                         .clip(CircleShape)
-                        .background(PulseColors.AccentViolet),
+                        .background(PulseTheme.colors.accentViolet),
                 )
                 Text(
                     text = "ON REPEAT · THIS WEEK",
-                    color = PulseColors.TextPrimary.copy(alpha = 0.85f),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                 )
@@ -296,12 +293,12 @@ private fun HeroCard(
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    tint = PulseColors.Canvas,
+                    tint = MaterialTheme.colorScheme.background,
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = "Play now",
-                    color = PulseColors.Canvas,
+                    color = MaterialTheme.colorScheme.background,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium,
                 )
@@ -315,12 +312,12 @@ private fun SectionHeader(title: String, subtitle: String) {
     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
         Text(
             text = title,
-            color = PulseColors.TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
             text = subtitle,
-            color = PulseColors.TextMuted,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 2.dp),
         )
@@ -348,7 +345,7 @@ private fun SongCarousel(songs: List<Song>, onTap: (Int) -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = song.title,
-                    color = PulseColors.TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -356,7 +353,7 @@ private fun SongCarousel(songs: List<Song>, onTap: (Int) -> Unit) {
                 )
                 Text(
                     text = song.artist,
-                    color = PulseColors.TextMuted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -379,7 +376,7 @@ private fun MadeForYouCard(
             .padding(horizontal = 20.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(PulseColors.PillSurface)
+            .background(PulseTheme.colors.pillSurface)
             .clickable(onClick = onPlay)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -393,14 +390,14 @@ private fun MadeForYouCard(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = subtitle,
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -411,13 +408,13 @@ private fun MadeForYouCard(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(PulseColors.PillSurfaceStrong),
+                .background(PulseTheme.colors.pillSurfaceStrong),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Filled.PlayArrow,
                 contentDescription = "Play",
-                tint = PulseColors.TextPrimary,
+                tint = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.size(14.dp),
             )
         }
@@ -425,24 +422,48 @@ private fun MadeForYouCard(
 }
 
 @Composable
-private fun EmptyState() {
+private fun EmptyState(
+    folderExists: Boolean,
+    folderPath: String,
+    onCreateFolder: () -> Unit,
+    onRescan: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(32.dp),
+            .padding(horizontal = 24.dp, vertical = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
-            text = "No music found",
-            color = PulseColors.TextPrimary,
+            text = if (folderExists) "Pulse folder is empty"
+            else "Let's set up your music folder",
+            color = MaterialTheme.colorScheme.onBackground,
             style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = "Drop music files into your device's Music folder (or any folder named 'Pulse'), then tap Rescan in Settings.",
-            color = PulseColors.TextMuted,
-            style = MaterialTheme.typography.bodySmall,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
+        Text(
+            text = if (folderExists)
+                "Drop MP3, FLAC, or M4A files into:\n$folderPath\nthen tap Rescan."
+            else
+                "Pulse looks for music in a dedicated folder so your library stays clean. We'll create it at:\n$folderPath",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Row(
+            modifier = Modifier
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+                .background(MaterialTheme.colorScheme.onBackground)
+                .clickable(onClick = if (folderExists) onRescan else onCreateFolder)
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = if (folderExists) "Rescan library" else "Create Pulse folder",
+                color = MaterialTheme.colorScheme.background,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }

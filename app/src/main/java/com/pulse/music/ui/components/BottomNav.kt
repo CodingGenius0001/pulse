@@ -1,21 +1,21 @@
 package com.pulse.music.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -36,7 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pulse.music.data.Song
-import com.pulse.music.ui.theme.PulseColors
+import com.pulse.music.ui.theme.PulseTheme
 
 /**
  * The four bottom-nav destinations.
@@ -53,8 +53,8 @@ enum class Destination(
 }
 
 /**
- * Custom bottom nav. Material3's NavigationBar uses indicators and elevation
- * that don't match the aesthetic — so we render our own pill-style row.
+ * Bottom navigation row. Custom rather than Material3 NavigationBar so we
+ * can get the pill-shaped active indicator that matches the mockup.
  */
 @Composable
 fun PulseBottomNav(
@@ -74,7 +74,7 @@ fun PulseBottomNav(
             Column(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (selected) PulseColors.PillSurfaceStrong else Color.Transparent)
+                    .background(if (selected) PulseTheme.colors.pillSurfaceStrong else Color.Transparent)
                     .clickable { onNavigate(destination) }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -83,12 +83,12 @@ fun PulseBottomNav(
                 Icon(
                     imageVector = destination.icon,
                     contentDescription = destination.label,
-                    tint = if (selected) PulseColors.TextPrimary else PulseColors.TextMuted,
+                    tint = if (selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
                     text = destination.label,
-                    color = if (selected) PulseColors.TextPrimary else PulseColors.TextMuted,
+                    color = if (selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                 )
@@ -98,8 +98,11 @@ fun PulseBottomNav(
 }
 
 /**
- * The compact now-playing strip that sits above the tab bar.
- * Tapping the body expands to the full Now Playing screen.
+ * Compact now-playing strip that floats above the tab bar.
+ *
+ * Glass translucent effect achieved via a semi-transparent white/black fill
+ * layered with a subtle border — gives the "frosted" look without requiring
+ * the RenderEffect-based blur that's slow on older devices.
  */
 @Composable
 fun MiniPlayer(
@@ -107,6 +110,7 @@ fun MiniPlayer(
     isPlaying: Boolean,
     onTap: () -> Unit,
     onPlayPause: () -> Unit,
+    onSkipForward10: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -114,8 +118,13 @@ fun MiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(PulseColors.PillSurfaceStrong)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(18.dp),
+            )
             .clickable(onClick = onTap)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -129,19 +138,20 @@ fun MiniPlayer(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = song.title,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = song.artist,
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // Play / pause
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -152,10 +162,27 @@ fun MiniPlayer(
             Icon(
                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = PulseColors.TextPrimary,
+                tint = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.size(22.dp),
             )
         }
+        // Skip forward 10s — more useful in a local player than always jumping
+        // to the next track, which the user can still do with a long press.
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onSkipForward10),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Forward10,
+                contentDescription = "Forward 10 seconds",
+                tint = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        // Next track
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -165,8 +192,8 @@ fun MiniPlayer(
         ) {
             Icon(
                 imageVector = Icons.Filled.SkipNext,
-                contentDescription = "Next",
-                tint = PulseColors.TextPrimary,
+                contentDescription = "Next track",
+                tint = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -174,7 +201,7 @@ fun MiniPlayer(
 }
 
 /**
- * Tab bar container with a subtle top border.
+ * Wrapper for the bottom nav area with a subtle divider line.
  */
 @Composable
 fun BottomNavContainer(
@@ -186,11 +213,11 @@ fun BottomNavContainer(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(PulseColors.Line),
+                .background(PulseTheme.colors.line),
         )
         content()
     }
 }
 
-/** Height reserved at the bottom of scroll content so the tab bar doesn't cover items. */
+/** Bottom padding reserved in scroll content so the mini-player + tab bar don't overlap items. */
 val BottomBarContentPadding = PaddingValues(bottom = 160.dp)

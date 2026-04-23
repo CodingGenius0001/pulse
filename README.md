@@ -1,71 +1,81 @@
 # Pulse
 
-A clean, native Android music player for files you own. Dark-first UI, pill-based
-controls, background playback with lock-screen media controls.
+A clean, native Android music player for files you own. Dark-first UI with
+light-mode support, pill-based controls, background playback with lock-screen
+controls, and strict folder-based scanning so your library stays curated.
 
-**Stack:** Kotlin · Jetpack Compose · Media3 / ExoPlayer · Room · Coil
+**Stack:** Kotlin · Jetpack Compose · Media3 / ExoPlayer · Room · DataStore · Coil
 
 ---
 
-## What's in v0.1.0
+## What's new in v0.2.0
 
-- **Scans your music folder** — reads audio files via MediaStore, prioritizes any
-  folder named `Pulse` on the device, falls back to all music if empty
-- **Four screens** — For you (home), Library (Playlists/Albums/Artists/Songs),
-  Now Playing (full-screen player), Settings
-- **Background playback** — `MediaSessionService` with notification + lock-screen
-  controls, audio focus, pause-on-headphones-unplug
-- **Persistent state** — Room database stores songs, play counts, likes, and
-  playlists; survives app restarts
-- **Auto-generated mixes** — "On repeat", "Fresh mix", "All music" built from
-  your listening data
-- **Playlist thumbnails** — 2×2 mosaics auto-composed from album art of the
-  songs inside each playlist
-- **Gradient fallback** — songs without embedded album art get deterministic
-  colored tiles so the UI never breaks
+### Bug fixes
+- **Strict folder scanning** — only reads from `/Music/Pulse/` or `/Pulse/` on
+  the device root. No more WhatsApp voice notes or random ringtones showing up.
+  If neither folder exists, the app prompts to create one.
+- **Theme toggle actually works** — persists across launches via DataStore,
+  Light/Dark/Auto are all wired up and switch the full UI.
+- **All buttons functional** — Settings rows, the `+` in Library, the overflow
+  menu in Now Playing, theme toggle, profile rename — everything responds.
+- **Better fallback for missing album art** — tracks without embedded art now
+  show a music-note icon on top of a deterministic gradient tile (one gradient
+  per album so the visual identity is stable).
 
-### Not yet in v0.1.0
+### New features
+- **Working search** — real-time filtering across titles, artists, and albums
+  with grouped results
+- **Create playlist dialog** — `+` button in Library now opens a working dialog
+- **Glass-effect mini player** — translucent surface with blur-style look
+- **Skip-forward-10s in the mini player** — more useful than "next track" for
+  quick seek corrections
+- **Custom pill scrubber** — thin progress bar with a vertical pill handle
+  that matches the reference design; supports tap-to-seek and drag-to-seek
+- **10-second seek as primary transport** — back-10s / PLAY / forward-10s.
+  Shuffle, repeat, prev-track, next-track moved to the overflow menu (the
+  3-dot button in the top right of Now Playing)
+- **Profile name editing** — tap Edit on the profile card in Settings
+- **Empty-state CTAs** — when the Pulse folder doesn't exist, the Home screen
+  shows a "Create Pulse folder" button; when it exists but is empty, it
+  shows the folder path + a "Rescan library" button
 
-- Firebase sign-in + cloud sync (scaffolded, turned off — see below)
-- Search
-- Light theme is wired but the toggle doesn't persist yet
-- Profile picture upload
-- Lyrics/queue/output detail screens (the buttons exist, they're just stubs)
+### Design refinements
+- Theme-aware color tokens via CompositionLocal — every screen adapts to
+  light/dark instantly
+- Mini player now has 44dp tap targets and a glass-translucent background
+- Play pill is visually heavier (28dp icon) so it doesn't look thin
+
+---
+
+## Still not in v0.2.0
+
+- Firebase cloud sync (scaffolded, off by default — see README for turn-on steps)
+- Lyrics (would need a lyrics provider — deferred)
+- User playlist detail screen (you can create playlists, just can't tap into
+  them yet; this is the one remaining known stub)
+- Flowing waveform animation on the progress bar (needs FFT of audio stream)
+- Profile picture upload (name change works, photo doesn't)
 
 ---
 
 ## Build & run
 
-### Prereqs
+Nothing's changed from v0.1 — same setup:
 
-- **Android Studio Ladybug (2024.2)** or newer
-- **JDK 17** (Android Studio bundles this)
-- **A physical Android device** running Android 8.0 (API 26) or later, with
-  **USB debugging enabled** (Settings → Developer options → USB debugging)
+### Prereqs
+- Android Studio Ladybug (2024.2) or newer
+- JDK 17
+- Android device on API 26+ with USB debugging
 
 ### Steps
 
-1. **Open in Android Studio:** File → Open → select the `pulse/` folder
-2. **Let Gradle sync** — it'll download dependencies (~2 minutes first time).
-   If it asks about the Gradle wrapper, let it generate one.
-3. **Put some music on your phone:**
-   - Connect your phone via USB, transfer MP3/FLAC/M4A files to
-     `Internal storage/Music/Pulse/` (Pulse looks here first)
-   - Or drop them anywhere under `Music/` — Pulse falls back to scanning all
-     music if the `Pulse` folder is empty
-4. **Plug in your phone**, make sure Android Studio sees it in the device dropdown
-5. **Hit Run** (the green triangle). First install takes ~30 seconds.
-6. **Grant the "Music and audio" permission** when prompted — this lets Pulse
-   read your audio files.
-7. **Tap a song** to play. Background playback, lock-screen controls, and the
-   notification should all just work.
-
-### If nothing shows up
-
-- Check that `READ_MEDIA_AUDIO` permission was granted (Settings → Apps → Pulse
-  → Permissions)
-- Go to Settings (in Pulse) → Music folder → "Rescan library"
-- Verify your music is under a folder named `Pulse` or at least under `Music/`
+1. **Open the project** in Android Studio (File → Open → select `pulse/`)
+2. **Let Gradle sync** (~2 min first time)
+3. **Create a Pulse folder** on your phone: `Internal storage/Music/Pulse/`
+   Drop some MP3s/FLACs in it
+   *(or just install and hit "Create Pulse folder" in the empty state)*
+4. **Plug in your phone** with USB debugging on
+5. **Hit Run**
 
 ---
 
@@ -74,171 +84,89 @@ controls, background playback with lock-screen media controls.
 ```
 pulse/
 ├── app/src/main/
-│   ├── AndroidManifest.xml          # Permissions, activity, media service
+│   ├── AndroidManifest.xml
 │   ├── java/com/pulse/music/
-│   │   ├── PulseApplication.kt       # Singletons (DB, repo, scanner)
+│   │   ├── PulseApplication.kt       # Singletons (DB, repo, scanner, prefs)
 │   │   ├── MainActivity.kt           # Permission gate + Compose entry
 │   │   │
-│   │   ├── data/                     # Room entities + DAO + repository
+│   │   ├── data/
 │   │   │   ├── Song.kt
 │   │   │   ├── Playlist.kt
 │   │   │   ├── MusicDao.kt
 │   │   │   ├── PulseDatabase.kt
-│   │   │   └── MusicRepository.kt
+│   │   │   ├── MusicRepository.kt
+│   │   │   └── UserPreferences.kt     ← NEW in v0.2: DataStore-backed prefs
 │   │   │
-│   │   ├── scanner/
-│   │   │   └── MusicScanner.kt       # MediaStore query, folder filter
+│   │   ├── scanner/MusicScanner.kt    ← v0.2: strict folder only
 │   │   │
 │   │   ├── player/
-│   │   │   ├── PlayerService.kt      # MediaSessionService (background)
-│   │   │   └── PlayerViewModel.kt    # MediaController + PlaybackState
+│   │   │   ├── PlayerService.kt       # MediaSessionService
+│   │   │   └── PlayerViewModel.kt     # +seekForward10, +seekBack10
 │   │   │
 │   │   ├── ui/
-│   │   │   ├── PulseApp.kt           # Root: nav + bottom bar + mini player
-│   │   │   ├── LibraryViewModel.kt   # Flows for all library data
-│   │   │   │
-│   │   │   ├── theme/                # Color, Type, Theme
-│   │   │   ├── components/           # AlbumArt, Mosaic, PillButton, BottomNav
-│   │   │   └── screens/              # ForYou, Library, NowPlaying, Settings
+│   │   │   ├── PulseApp.kt
+│   │   │   ├── LibraryViewModel.kt    # +folderState, +userName, +createPulseFolder
+│   │   │   ├── theme/
+│   │   │   │   ├── Color.kt           ← v0.2: CompositionLocal tokens
+│   │   │   │   ├── Theme.kt           ← v0.2: reads persisted ThemePreference
+│   │   │   │   └── Type.kt
+│   │   │   ├── components/
+│   │   │   │   ├── AlbumArt.kt        ← v0.2: music-note fallback
+│   │   │   │   ├── AlbumMosaic.kt
+│   │   │   │   ├── BottomNav.kt       ← v0.2: glass-effect MiniPlayer
+│   │   │   │   └── PillButton.kt
+│   │   │   └── screens/
+│   │   │       ├── ForYouScreen.kt    ← v0.2: folder-aware empty state
+│   │   │       ├── LibraryScreen.kt   ← v0.2: new playlist dialog
+│   │   │       ├── NowPlayingScreen.kt ← v0.2: 10s seek transport, custom scrubber, overflow menu
+│   │   │       ├── SearchScreen.kt    ← v0.2: real search
+│   │   │       └── SettingsScreen.kt  ← v0.2: theme persist, rename, rescan
 │   │   │
-│   │   └── util/
-│   │       └── Formatters.kt         # Duration fmt, gradient generator
+│   │   └── util/Formatters.kt
 │   │
-│   └── res/                          # Icons, themes, strings
+│   └── res/
 │
-├── gradle/
-│   ├── libs.versions.toml            # Version catalog
-│   └── wrapper/
-├── build.gradle.kts                  # Root
-├── settings.gradle.kts
-└── app/build.gradle.kts              # App module
+├── gradle/libs.versions.toml
+├── build.gradle.kts
+└── .github/workflows/build.yml        # CI builds debug APK on push
 ```
 
 ---
 
-## Architecture notes
+## Design decisions worth flagging
 
-### Scanning flow
-
-```
-MediaStore → MusicScanner.scanAll()
-          → filters to /Pulse/ (or all music if empty)
-          → MusicRepository.rescan()
-          → merges new metadata with existing Room rows
-            (preserves likes + play counts)
-          → dao.upsertSongs() + dao.deleteSongsNotIn()
-          → UI Flows emit new state automatically
-```
-
-### Playback flow
-
-```
-UI taps a song → PlayerViewModel.playQueue(songs, index)
-             → MediaController.setMediaItems() + prepare() + play()
-             → Media3 hands audio to ExoPlayer in PlayerService
-             → Service promotes itself to foreground (notification appears)
-             → Player.Listener fires → PlayerViewModel updates PlaybackState
-             → UI recomposes (Now Playing, mini player)
-             → On track transition, dao.markPlayed() increments play count
-```
-
-### Why no Hilt / Koin?
-
-Kept DI manual for v1 to reduce build complexity and the number of moving
-parts. `PulseApplication.get()` acts as a service locator for the two
-`ViewModelProvider.Factory`s. If we add more cross-cutting concerns later,
-migrate to Hilt — it's a one-day refactor.
-
----
-
-## Turning on Firebase cloud sync
-
-The backend is scaffolded but disabled by default so the app builds and runs
-without Firebase setup. When you're ready to turn it on:
-
-1. **Create a Firebase project** at [console.firebase.google.com](https://console.firebase.google.com)
-2. **Add an Android app** with package name `com.pulse.music`
-3. **Get the SHA-1 fingerprint** of your debug keystore:
-   ```
-   cd ~/.android
-   keytool -list -v -keystore debug.keystore -alias androiddebugkey \
-     -storepass android -keypass android
-   ```
-   Paste the SHA-1 into Firebase Console → Project Settings → Your apps.
-4. **Download `google-services.json`** from Firebase Console and drop it into
-   `app/` (same folder as `build.gradle.kts`)
-5. **Enable services you need** in Firebase Console:
-   - Authentication → Sign-in method → Google
-   - Firestore Database (for playlists/likes sync)
-   - Cloud Storage (for profile pictures)
-6. **Add the Firebase plugin** to `app/build.gradle.kts`:
-   ```kotlin
-   plugins {
-       id("com.google.gms.google-services")
-   }
-   dependencies {
-       implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
-       implementation("com.google.firebase:firebase-auth")
-       implementation("com.google.firebase:firebase-firestore")
-       implementation("com.google.firebase:firebase-storage")
-       implementation("com.google.android.gms:play-services-auth:21.2.0")
-   }
-   ```
-7. And to the root `build.gradle.kts`:
-   ```kotlin
-   plugins {
-       id("com.google.gms.google-services") version "4.4.2" apply false
-   }
-   ```
-8. Wire the Sign-in button in `SettingsScreen.kt` to launch the Google sign-in
-   intent. (I'll leave this implementation to v0.2 — it's ~50 lines with the
-   Credential Manager API.)
-
----
-
-## Publishing to Google Play
-
-Eventual steps when you're ready to ship:
-
-1. **Generate a signing keystore** — `Build → Generate Signed Bundle / APK`
-   in Android Studio. Back up the keystore somewhere safe; losing it means
-   you can't update the app on Play.
-2. **Bump `versionCode` and `versionName`** in `app/build.gradle.kts`
-3. **Build an AAB** (Android App Bundle) — Play prefers AAB over APK
-4. **Register as a Play Console developer** ($25 one-time fee)
-5. **Create a store listing** — icon, screenshots, description, privacy policy
-   (required — you'll need to host a privacy policy somewhere, even a simple
-   GitHub Pages site works)
-6. **Content rating** — fill out the questionnaire, should be "Everyone"
-7. **Upload to internal testing track first**, test on your phone via the
-   internal testers link, then promote to production
-
-Since Pulse reads user-selected files and stores data only in Room + (later)
-Firebase, the privacy policy is straightforward: list the permissions you
-use (READ_MEDIA_AUDIO, internet for Firebase) and what data you collect
-(playlists and play history — only if the user signs in).
-
----
-
-## Known quirks
-
-- **First scan is blocking** — if you have thousands of songs, the initial
-  scan takes a few seconds. Fine for most libraries; add a progress indicator
-  in v0.2 if it becomes an issue.
-- **MediaController connection is async** — if you tap a song within ~50ms
-  of the app launching, it may no-op. Hasn't happened in practice but worth
-  knowing.
-- **Progress bar uses Material3 Slider** — not the exact thin-bar-with-vertical-pill
-  look from the mockup yet. Custom slider is a v0.2 polish item.
+- **Shuffle / repeat in the overflow menu.** Reference music players usually
+  put these on the transport row, but for a local file player 10-second seek
+  is used more often than shuffle. The overflow menu is one tap away and the
+  tradeoff gives you a much cleaner main transport.
+- **Deterministic gradient + music note for missing art** rather than a flat
+  grey icon. A uniform grey library is bland; this way albums stay visually
+  distinct even without embedded art.
+- **"For you" recs come from your own listening history** (top-played, recently-
+  added, most-recent). No streaming catalog, no server — just what's actually
+  on your device.
 
 ---
 
 ## Changelog
 
-### v0.1.0 — Initial release
-- Full UI for For You / Library / Now Playing / Settings
+### v0.2.0
+- Strict Pulse-folder-only scanning
+- Theme toggle with DataStore persistence
+- Working search
+- Create-playlist dialog
+- Glass-effect mini player + skip-forward-10s
+- 10-second seek as primary transport
+- Custom pill scrubber
+- Music-note fallback for missing art
+- Profile name editing
+- Folder-aware empty states
+
+### v0.1.0
+- Initial release
+- Full UI skeleton for For You / Library / Now Playing / Settings
 - Folder-based music scanning via MediaStore
 - Background playback with MediaSessionService
 - Room persistence for playlists, likes, play counts
-- Auto-generated mix cards based on listening history
+- Auto-generated mix cards
 - 2×2 album art mosaics for playlist thumbnails

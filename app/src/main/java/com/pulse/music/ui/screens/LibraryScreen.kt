@@ -17,27 +17,38 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulse.music.data.Playlist
@@ -49,7 +60,8 @@ import com.pulse.music.ui.components.BottomBarContentPadding
 import com.pulse.music.ui.components.CircleButton
 import com.pulse.music.ui.components.FilterPill
 import com.pulse.music.ui.components.SolidThumbnail
-import com.pulse.music.ui.theme.PulseColors
+import com.pulse.music.ui.theme.PulseTheme
+import kotlinx.coroutines.launch
 
 private enum class LibraryFilter(val label: String) {
     Playlists("Playlists"),
@@ -74,12 +86,15 @@ fun LibraryScreen(
     val albumsGrouped = remember(allSongs) { allSongs.groupBy { it.album }.entries.toList() }
     val artistsGrouped = remember(allSongs) { allSongs.groupBy { it.artist }.entries.toList() }
 
+    val scope = rememberCoroutineScope()
+    var showNewPlaylistDialog by remember { mutableStateOf(false) }
+
     var selectedFilter by remember { mutableStateOf(LibraryFilter.Playlists) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(PulseColors.Canvas),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         // Header
         Row(
@@ -91,14 +106,14 @@ fun LibraryScreen(
         ) {
             Text(
                 text = "Library",
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleLarge,
             )
-            CircleButton(onClick = { /* TODO new playlist */ }, size = 36.dp) {
+            CircleButton(onClick = { showNewPlaylistDialog = true }, size = 36.dp) {
                 Icon(
                     imageVector = Icons.Filled.Add,
-                    contentDescription = "New",
-                    tint = PulseColors.TextPrimary,
+                    contentDescription = "New playlist",
+                    tint = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -135,7 +150,7 @@ fun LibraryScreen(
                         SystemPlaylistRow(
                             title = "Liked songs",
                             subtitle = "${likedSongs.size} songs",
-                            gradient = listOf(PulseColors.AccentPink, Color(0xFFEC4899)),
+                            gradient = listOf(PulseTheme.colors.accentPink, Color(0xFFEC4899)),
                             icon = { Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.size(22.dp)) },
                             onClick = { if (likedSongs.isNotEmpty()) onSongTap(likedSongs, 0) },
                         )
@@ -163,7 +178,7 @@ fun LibraryScreen(
                             Spacer(Modifier.height(24.dp))
                             Text(
                                 text = "No user playlists yet",
-                                color = PulseColors.TextMuted,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.fillMaxWidth(),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -203,6 +218,78 @@ fun LibraryScreen(
             }
         }
     }
+
+    if (showNewPlaylistDialog) {
+        NewPlaylistDialog(
+            onDismiss = { showNewPlaylistDialog = false },
+            onCreate = { name ->
+                scope.launch { vm.createPlaylist(name) }
+                showNewPlaylistDialog = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun NewPlaylistDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New playlist", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Column {
+                Text(
+                    text = "Give your playlist a name. You can add songs to it later.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(PulseTheme.colors.pillSurface)
+                        .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(10.dp))
+                        .padding(14.dp),
+                ) {
+                    if (input.isEmpty()) {
+                        Text(
+                            text = "Playlist name",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    BasicTextField(
+                        value = input,
+                        onValueChange = { input = it.take(60) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onBackground,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (input.isNotBlank()) onCreate(input.trim()) },
+            ) {
+                Text("Create", color = MaterialTheme.colorScheme.onBackground)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }
 
 @Composable
@@ -232,19 +319,19 @@ private fun SystemPlaylistRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
                 text = subtitle,
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 3.dp),
             )
         }
         Text(
             text = "⋯",
-            color = PulseColors.TextMuted,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(end = 4.dp),
         )
@@ -278,21 +365,21 @@ private fun UserPlaylistRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = playlist.name,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "${thumbnailSongs.size} songs · You",
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 3.dp),
             )
         }
         Text(
             text = "⋯",
-            color = PulseColors.TextMuted,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(end = 4.dp),
         )
@@ -317,14 +404,14 @@ private fun SongRow(song: Song, onClick: () -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = song.title,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = song.artist,
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -358,14 +445,14 @@ private fun AlbumRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = albumName,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "$artist · $songCount songs",
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -389,7 +476,7 @@ private fun ArtistRow(artist: String, songCount: Int, onClick: () -> Unit) {
             modifier = Modifier
                 .size(48.dp)
                 .background(
-                    Brush.linearGradient(listOf(PulseColors.AccentViolet, PulseColors.AccentPink)),
+                    Brush.linearGradient(listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink)),
                     shape = androidx.compose.foundation.shape.CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -404,14 +491,14 @@ private fun ArtistRow(artist: String, songCount: Int, onClick: () -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = artist,
-                color = PulseColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onBackground,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "$songCount songs",
-                color = PulseColors.TextMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 3.dp),
             )

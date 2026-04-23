@@ -169,6 +169,22 @@ class PlayerViewModel(
         controller?.seekTo(positionMs)
     }
 
+    /** Jumps 10 seconds forward, clamped to track duration. */
+    fun seekForward10() {
+        val c = controller ?: return
+        val target = (c.currentPosition + 10_000L).coerceAtMost(
+            if (c.duration > 0) c.duration else Long.MAX_VALUE
+        )
+        c.seekTo(target)
+    }
+
+    /** Jumps 10 seconds back, clamped to 0. */
+    fun seekBack10() {
+        val c = controller ?: return
+        val target = (c.currentPosition - 10_000L).coerceAtLeast(0)
+        c.seekTo(target)
+    }
+
     fun toggleShuffle() {
         val c = controller ?: return
         c.shuffleModeEnabled = !c.shuffleModeEnabled
