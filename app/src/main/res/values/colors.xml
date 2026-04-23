@@ -1,0 +1,5 @@
+<resources>
+    <color name="pulse_canvas">#FF08080A</color>
+    <color name="pulse_surface">#FF0A0A0C</color>
+    <color name="pulse_primary">#FFFAFAF8</color>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer ring -->
+    <path
+        android:pathData="M54,32 A22,22 0 1,1 54,76 A22,22 0 1,1 54,32 Z M54,40 A14,14 0 1,0 54,68 A14,14 0 1,0 54,40 Z"
+        android:fillColor="#FFFAFAF8"
+        android:fillType="evenOdd" />
+    <!-- Inner dot -->
+    <path
+        android:pathData="M54,50 A4,4 0 1,1 54,58 A4,4 0 1,1 54,50 Z"
+        android:fillColor="#FFA78BFA" />
+</vector>
