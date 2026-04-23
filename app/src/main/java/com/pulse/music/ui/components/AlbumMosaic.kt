@@ -5,11 +5,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -21,9 +22,12 @@ import com.pulse.music.util.gradientFor
 /**
  * Composes 2x2 album art tiles into a single thumbnail.
  *
- * If [songs] has fewer than 4 items we either pad the remaining tiles with
- * deterministic gradient swatches (for a consistent look) or, if empty,
- * render a single uniform gradient.
+ * If [songs] has fewer than 4 items we pad by repeating available songs.
+ * If empty, renders a single gradient swatch.
+ *
+ * We use fillMaxHeight/fillMaxWidth fractions rather than weight() because
+ * weight() is a RowScope/ColumnScope extension and can trip over internal
+ * parent-data types when chained through nested scopes.
  */
 @Composable
 fun AlbumMosaic(
@@ -49,39 +53,45 @@ fun AlbumMosaic(
                 )
             }
             else -> {
-                val padded = padToFour(songs, seed)
+                val padded = padToFour(songs)
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.5f),
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                     ) {
                         AlbumArt(
                             song = padded[0],
                             cornerRadius = 0.dp,
-                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(0.5f),
                         )
                         AlbumArt(
                             song = padded[1],
                             cornerRadius = 0.dp,
-                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
                     Row(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                     ) {
                         AlbumArt(
                             song = padded[2],
                             cornerRadius = 0.dp,
-                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(0.5f),
                         )
                         AlbumArt(
                             song = padded[3],
                             cornerRadius = 0.dp,
-                            modifier = Modifier.weight(1f).fillMaxSize(),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
                 }
@@ -91,10 +101,9 @@ fun AlbumMosaic(
 }
 
 /**
- * Pads the song list to exactly 4. If fewer than 4 songs exist, we repeat
- * the available ones so the mosaic always looks complete.
+ * Pads a song list to exactly 4 by repeating available entries.
  */
-private fun padToFour(songs: List<Song>, @Suppress("UNUSED_PARAMETER") seed: String): List<Song> {
+private fun padToFour(songs: List<Song>): List<Song> {
     if (songs.size >= 4) return songs.take(4)
     val repeated = mutableListOf<Song>()
     var i = 0
@@ -119,15 +128,14 @@ fun GradientThumbnail(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
             .background(gradientFor(seed)),
-        contentAlignment = androidx.compose.ui.Alignment.Center,
+        contentAlignment = Alignment.Center,
     ) {
         content()
     }
 }
 
 /**
- * Solid-color fallback for system playlists (Liked, Recently added) that
- * want a distinct visual treatment from user playlists.
+ * Solid-color fallback used for system playlists (Liked songs, Recently added).
  */
 @Composable
 fun SolidThumbnail(
@@ -140,7 +148,7 @@ fun SolidThumbnail(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
             .background(color),
-        contentAlignment = androidx.compose.ui.Alignment.Center,
+        contentAlignment = Alignment.Center,
     ) {
         content()
     }

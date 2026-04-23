@@ -2,6 +2,7 @@ package com.pulse.music.data
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -23,6 +24,7 @@ data class Playlist(
 @Entity(
     tableName = "playlist_song_cross_ref",
     primaryKeys = ["playlistId", "songId"],
+    indices = [Index("songId")],
     foreignKeys = [
         ForeignKey(
             entity = Playlist::class,

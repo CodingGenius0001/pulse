@@ -7,16 +7,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pulse.music.ui.theme.PulseColors
@@ -24,11 +28,14 @@ import com.pulse.music.ui.theme.PulseColors
 /**
  * A group of circular buttons inside a single translucent pill.
  * Mirrors the prev/next + shuffle/repeat clusters in the Now Playing mockup.
+ *
+ * Children are laid out in a horizontal Row; content receives RowScope
+ * so child buttons get standard row modifiers.
  */
 @Composable
 fun PillGroup(
     modifier: Modifier = Modifier,
-    content: @Composable (Row.() -> Unit),
+    content: @Composable RowScope.() -> Unit,
 ) {
     Row(
         modifier = modifier
@@ -134,12 +141,11 @@ fun FilterPill(
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
-        androidx.compose.material3.Text(
+        Text(
             text = label,
             color = fg,
-            style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.Medium
-            else androidx.compose.ui.text.font.FontWeight.Normal,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
         )
     }
 }

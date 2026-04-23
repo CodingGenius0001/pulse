@@ -68,6 +68,12 @@ fun LibraryScreen(
     val likedSongs by vm.likedSongs.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
 
+    // Pre-group songs here (where @Composable context is explicit) so the
+    // lazy list just consumes the result. Grouping inside the when-branches
+    // below sits in a non-composable lambda and can't call remember().
+    val albumsGrouped = remember(allSongs) { allSongs.groupBy { it.album }.entries.toList() }
+    val artistsGrouped = remember(allSongs) { allSongs.groupBy { it.artist }.entries.toList() }
+
     var selectedFilter by remember { mutableStateOf(LibraryFilter.Playlists) }
 
     Column(
@@ -166,8 +172,7 @@ fun LibraryScreen(
                     }
                 }
                 LibraryFilter.Albums -> {
-                    val albums = remember(allSongs) { allSongs.groupBy { it.album } }
-                    items(albums.entries.toList()) { (albumName, songs) ->
+                    items(albumsGrouped) { (albumName, songs) ->
                         AlbumRow(
                             albumName = albumName,
                             artist = songs.firstOrNull()?.artist.orEmpty(),
@@ -178,8 +183,7 @@ fun LibraryScreen(
                     }
                 }
                 LibraryFilter.Artists -> {
-                    val artists = remember(allSongs) { allSongs.groupBy { it.artist } }
-                    items(artists.entries.toList()) { (artistName, songs) ->
+                    items(artistsGrouped) { (artistName, songs) ->
                         ArtistRow(
                             artist = artistName,
                             songCount = songs.size,
