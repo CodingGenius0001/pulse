@@ -115,7 +115,7 @@ fun SettingsScreen() {
             SectionLabel("Music folder")
             SettingRow(
                 title = "Source folder",
-                subtitle = folderState.path,
+                subtitle = folderState.displayPath,
                 leading = {
                     Icon(
                         imageVector = Icons.Filled.FolderOpen,

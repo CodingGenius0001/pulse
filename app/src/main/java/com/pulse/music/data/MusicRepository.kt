@@ -58,6 +58,7 @@ class MusicRepository(
     /** Exposes the scanner's folder operations to the UI layer. */
     fun pulseFolderExists(): Boolean = scanner.pulseFolderExists()
     fun pulseFolderPath(): String = scanner.preferredPulseFolder().absolutePath
+    fun pulseFolderDisplayPath(): String = scanner.shortDisplayPath()
     fun createPulseFolder(): Boolean = scanner.createPulseFolder()
 
     private suspend fun ensureSystemPlaylist(type: String, name: String) {

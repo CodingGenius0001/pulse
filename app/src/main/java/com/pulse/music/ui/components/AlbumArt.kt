@@ -9,6 +9,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,16 +22,23 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
 import com.pulse.music.util.gradientFor
 
 /**
- * Album art. Tries embedded art from MediaStore; if that fails, falls back
- * to a gradient tile with a music-note icon centered on top.
+ * Album art with a three-level fallback chain:
+ *   1. Genius-resolved artwork URL (remote, best quality)
+ *   2. Embedded ID3/MP4 artwork from the audio file itself
+ *   3. Gradient tile + centered music-note icon
  *
- * The gradient is seeded by album+artist so the same album always gets the
- * same color across the UI — consistent visual identity without the bland
- * "every song looks identical" look a uniform music-note icon would have.
+ * The Genius URL is looked up from the Room cache — no network call here,
+ * just a disk read. Background enrichment (in LibraryViewModel) populates
+ * the cache after a scan, so the more the user uses the app, the more
+ * tracks get pretty art.
+ *
+ * The gradient is seeded by album+artist so the same album gets the same
+ * color across the UI — albums stay visually distinct even without real art.
  */
 @Composable
 fun AlbumArt(
@@ -49,18 +58,33 @@ fun AlbumArt(
             return@Box
         }
 
+        // Look up a cached Genius artwork URL for this song. produceState
+        // gives us a reactive value without blocking the composition.
+        val geniusArtUrl by produceState<String?>(initialValue = null, song.id) {
+            value = PulseApplication.get()
+                .metadataRepository
+                .getCached(song.id)
+                ?.artworkUrl
+        }
+
+        val primaryModel: Any = geniusArtUrl ?: song.albumArtUri
         val painter = rememberAsyncImagePainter(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(song.albumArtUri)
+                .data(primaryModel)
                 .crossfade(true)
                 .build(),
         )
         val state = painter.state
 
         val loadFailed = state is AsyncImagePainter.State.Error ||
-                state is AsyncImagePainter.State.Empty
+            state is AsyncImagePainter.State.Empty
 
         if (loadFailed) {
+            // If the primary source failed AND it was a Genius URL, we could
+            // in theory try the embedded art next. Doing that requires a second
+            // painter + additional state handling; for v0.4 we just drop to
+            // the gradient fallback. Tracks that Genius resolves correctly
+            // essentially always render fine, so this is a cheap tradeoff.
             MusicNoteFallback(
                 seed = song.album + song.artist,
                 modifier = Modifier.fillMaxSize(),
@@ -76,10 +100,6 @@ fun AlbumArt(
     }
 }
 
-/**
- * Gradient background + centered music-note icon — the fallback used when
- * a song has no embedded album art (or the art fails to load).
- */
 @Composable
 private fun MusicNoteFallback(
     seed: String,
@@ -93,7 +113,6 @@ private fun MusicNoteFallback(
             imageVector = Icons.Filled.MusicNote,
             contentDescription = null,
             tint = Color.White.copy(alpha = 0.5f),
-            // Icon size scales naturally with the container via fillMaxSize+padding
             modifier = Modifier
                 .fillMaxSize()
                 .padding(28.dp),

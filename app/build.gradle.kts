@@ -1,8 +1,28 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.ksp)
+    alias(libs.plugins.kotlin.serialization)
+}
+
+/**
+ * Loads the Genius API token from local.properties (gitignored) or the
+ * GENIUS_ACCESS_TOKEN env var (for CI). Falls back to an empty string so
+ * builds succeed even without a token — the app just won't fetch metadata
+ * online in that case.
+ */
+val geniusToken: String = run {
+    val props = Properties()
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { props.load(it) }
+    }
+    props.getProperty("GENIUS_ACCESS_TOKEN")
+        ?: System.getenv("GENIUS_ACCESS_TOKEN")
+        ?: ""
 }
 
 android {
@@ -13,12 +33,15 @@ android {
         applicationId = "com.pulse.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.4.0"
 
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Expose the Genius token to Kotlin via BuildConfig.GENIUS_ACCESS_TOKEN
+        buildConfigField("String", "GENIUS_ACCESS_TOKEN", "\"$geniusToken\"")
     }
 
     buildTypes {
@@ -40,6 +63,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -90,6 +114,10 @@ dependencies {
 
     // Runtime permissions
     implementation(libs.accompanist.permissions)
+
+    // Networking
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

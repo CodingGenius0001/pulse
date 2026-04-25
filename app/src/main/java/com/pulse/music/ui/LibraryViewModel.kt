@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.pulse.music.PulseApplication
+import com.pulse.music.data.MetadataRepository
 import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -32,6 +34,7 @@ import kotlinx.coroutines.launch
 class LibraryViewModel(
     private val repository: MusicRepository,
     private val prefs: UserPreferences,
+    private val metadataRepository: MetadataRepository,
 ) : ViewModel() {
 
     // ---------- Scan state ----------
@@ -42,10 +45,18 @@ class LibraryViewModel(
     // ---------- Folder state ----------
 
     /** Describes where Pulse expects music to live and whether that folder exists. */
-    data class FolderState(val path: String, val exists: Boolean)
+    data class FolderState(
+        val displayPath: String,   // short path for UI, e.g. "Music/Pulse"
+        val fullPath: String,      // real absolute path (for debugging)
+        val exists: Boolean,
+    )
 
     private val _folderState = MutableStateFlow(
-        FolderState(repository.pulseFolderPath(), repository.pulseFolderExists())
+        FolderState(
+            displayPath = repository.pulseFolderDisplayPath(),
+            fullPath = repository.pulseFolderPath(),
+            exists = repository.pulseFolderExists(),
+        )
     )
     val folderState: StateFlow<FolderState> = _folderState.asStateFlow()
 
@@ -87,9 +98,30 @@ class LibraryViewModel(
             _scanState.value = ScanState.Completed(count, System.currentTimeMillis())
             // Refresh folder state in case the folder was created between scans
             _folderState.value = FolderState(
-                path = repository.pulseFolderPath(),
+                displayPath = repository.pulseFolderDisplayPath(),
+                fullPath = repository.pulseFolderPath(),
                 exists = repository.pulseFolderExists(),
             )
+
+            // Background-fetch Genius metadata for any song we haven't resolved
+            // yet. Throttled and fire-and-forget — the UI reacts when rows land
+            // in Room. Short-circuits cleanly if the Genius token isn't set.
+            enrichMetadataAsync()
+        }
+    }
+
+    /**
+     * Walks the current library, hitting Genius only for songs we've never
+     * resolved before. Runs serially on the IO dispatcher so we don't spray
+     * the API with parallel requests — Genius is generous but not infinite.
+     * Silently no-ops on network errors or missing tokens.
+     */
+    private suspend fun enrichMetadataAsync() {
+        val library = repository.observeAllSongs().first()
+        for (song in library) {
+            // Any existing row (match or cached miss) short-circuits.
+            if (metadataRepository.getCached(song.id) != null) continue
+            metadataRepository.resolve(song)
         }
     }
 
@@ -101,7 +133,8 @@ class LibraryViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val created = repository.createPulseFolder()
             _folderState.value = FolderState(
-                path = repository.pulseFolderPath(),
+                displayPath = repository.pulseFolderDisplayPath(),
+                fullPath = repository.pulseFolderPath(),
                 exists = repository.pulseFolderExists(),
             )
             if (created) rescan()
@@ -137,7 +170,11 @@ class LibraryViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val app = PulseApplication.get()
-                return LibraryViewModel(app.repository, app.userPreferences) as T
+                return LibraryViewModel(
+                    repository = app.repository,
+                    prefs = app.userPreferences,
+                    metadataRepository = app.metadataRepository,
+                ) as T
             }
         }
     }

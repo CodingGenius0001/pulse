@@ -1,6 +1,14 @@
 package com.pulse.music.ui.screens
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -10,6 +18,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,25 +37,30 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.Lyrics
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,8 +68,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -59,6 +80,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
+import com.pulse.music.PulseApplication
+import com.pulse.music.data.Song
+import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.player.PlayerViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.CircleButton
@@ -67,24 +91,33 @@ import com.pulse.music.ui.components.PillIconButton
 import com.pulse.music.ui.components.PlayPill
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.util.formatDuration
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.PI
+import kotlin.math.sin
 
 @Composable
 fun NowPlayingScreen(
     onBack: () -> Unit,
-    onOpenQueue: () -> Unit = {},
+    onOpenQueue: () -> Unit,
 ) {
     val vm: PlayerViewModel = viewModel(factory = PlayerViewModel.Factory())
     val state by vm.state.collectAsStateWithLifecycle()
     val song = state.currentSong
+    val context = LocalContext.current
 
     BackHandler(enabled = true) { onBack() }
 
     if (song == null) {
-        androidx.compose.runtime.LaunchedEffect(Unit) { onBack() }
+        LaunchedEffect(Unit) { onBack() }
         return
     }
 
-    var menuOpen by remember { mutableStateOf(false) }
+    var overflowOpen by remember { mutableStateOf(false) }
+    var lyricsOpen by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -92,7 +125,7 @@ fun NowPlayingScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        // Top bar
+        // Top bar — back arrow + song context, no more overflow button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -124,91 +157,8 @@ fun NowPlayingScreen(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            Box {
-                CircleButton(onClick = { menuOpen = true }, size = 38.dp) {
-                    Icon(
-                        imageVector = Icons.Filled.MoreVert,
-                        contentDescription = "More",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Shuffle") },
-                        onClick = {
-                            vm.toggleShuffle()
-                            menuOpen = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.Shuffle,
-                                contentDescription = null,
-                                tint = if (state.shuffleEnabled) PulseTheme.colors.accentViolet
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            val label = when (state.repeatMode) {
-                                Player.REPEAT_MODE_OFF -> "Repeat"
-                                Player.REPEAT_MODE_ALL -> "Repeat all"
-                                Player.REPEAT_MODE_ONE -> "Repeat one"
-                                else -> "Repeat"
-                            }
-                            Text(label)
-                        },
-                        onClick = {
-                            vm.toggleRepeat()
-                            menuOpen = false
-                        },
-                        leadingIcon = {
-                            val icon = when (state.repeatMode) {
-                                Player.REPEAT_MODE_ONE -> Icons.Filled.RepeatOne
-                                else -> Icons.Filled.Repeat
-                            }
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) PulseTheme.colors.accentViolet
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Previous track") },
-                        onClick = {
-                            vm.previous()
-                            menuOpen = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.SkipPrevious,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Next track") },
-                        onClick = {
-                            vm.next()
-                            menuOpen = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.SkipNext,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                    )
-                }
-            }
+            // Spacer so the title stays perfectly centered
+            Box(modifier = Modifier.size(38.dp))
         }
 
         Column(
@@ -218,7 +168,6 @@ fun NowPlayingScreen(
         ) {
             Spacer(Modifier.height(10.dp))
 
-            // Album art — now always shows real art or a music-note fallback
             AlbumArt(
                 song = song,
                 cornerRadius = 20.dp,
@@ -227,7 +176,7 @@ fun NowPlayingScreen(
                     .aspectRatio(1f),
             )
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
 
             // Title + like
             Row(
@@ -267,9 +216,13 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(18.dp))
 
-            // Custom pill-scrubber progress bar
+            WavyPlaybackIndicator(
+                isPlaying = state.isPlaying,
+                progress = if (state.durationMs > 0) state.positionMs.toFloat() / state.durationMs else 0f,
+            )
+            Spacer(Modifier.height(4.dp))
             PillScrubber(
                 positionMs = state.positionMs,
                 durationMs = state.durationMs,
@@ -278,27 +231,22 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // Transport row: 10s back | PLAY | 10s forward
-            // Skip-prev and skip-next moved to the overflow menu above since
-            // 10s seeks are more useful for a local music player.
+            // Transport: prev / PLAY / next — clean and symmetric
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(
-                    space = 16.dp,
+                    space = 14.dp,
                     alignment = Alignment.CenterHorizontally,
                 ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 PillGroup {
-                    PillIconButton(onClick = {
-                        val target = (state.positionMs - 10_000L).coerceAtLeast(0)
-                        vm.seekTo(target)
-                    }) {
+                    PillIconButton(onClick = { vm.previous() }) {
                         Icon(
-                            imageVector = Icons.Filled.Replay10,
-                            contentDescription = "Back 10 seconds",
+                            imageVector = Icons.Filled.SkipPrevious,
+                            contentDescription = "Previous track",
                             tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -313,17 +261,12 @@ fun NowPlayingScreen(
                 }
 
                 PillGroup {
-                    PillIconButton(onClick = {
-                        val target = (state.positionMs + 10_000L).coerceAtMost(
-                            if (state.durationMs > 0) state.durationMs else Long.MAX_VALUE
-                        )
-                        vm.seekTo(target)
-                    }) {
+                    PillIconButton(onClick = { vm.next() }) {
                         Icon(
-                            imageVector = Icons.Filled.Forward10,
-                            contentDescription = "Forward 10 seconds",
+                            imageVector = Icons.Filled.SkipNext,
+                            contentDescription = "Next track",
                             tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -331,33 +274,210 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.weight(1f))
 
-            // Bottom row: Queue + Output (Lyrics removed — it was a stub and
-            // would require a lyrics provider which isn't in scope for v0.2)
+            // Bottom action row — Lyrics · Queue · More (dropdown for shuffle/repeat/share)
+            // The overflow button is now in thumb reach at the bottom instead of the
+            // top-right corner. Pulling its companion actions (shuffle/repeat/share)
+            // down with it keeps everything ergonomic.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 20.dp),
+                    .padding(vertical = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(
-                    24.dp,
+                    18.dp,
                     alignment = Alignment.CenterHorizontally,
                 ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BottomAction(
+                    label = "Lyrics",
+                    icon = Icons.Outlined.Lyrics,
+                    onClick = { lyricsOpen = true },
+                )
+                BottomAction(
                     label = "Queue",
                     icon = Icons.AutoMirrored.Filled.QueueMusic,
                     onClick = onOpenQueue,
                 )
+                Box {
+                    BottomAction(
+                        label = "More",
+                        icon = Icons.Filled.MoreHoriz,
+                        onClick = { overflowOpen = true },
+                    )
+                    DropdownMenu(
+                        expanded = overflowOpen,
+                        onDismissRequest = { overflowOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (state.shuffleEnabled) "Shuffle · on" else "Shuffle",
+                                )
+                            },
+                            onClick = {
+                                vm.toggleShuffle()
+                                overflowOpen = false
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Shuffle,
+                                    contentDescription = null,
+                                    tint = if (state.shuffleEnabled) PulseTheme.colors.accentViolet
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                val label = when (state.repeatMode) {
+                                    Player.REPEAT_MODE_OFF -> "Repeat"
+                                    Player.REPEAT_MODE_ALL -> "Repeat · all"
+                                    Player.REPEAT_MODE_ONE -> "Repeat · one"
+                                    else -> "Repeat"
+                                }
+                                Text(label)
+                            },
+                            onClick = {
+                                vm.toggleRepeat()
+                                overflowOpen = false
+                            },
+                            leadingIcon = {
+                                val icon = when (state.repeatMode) {
+                                    Player.REPEAT_MODE_ONE -> Icons.Filled.RepeatOne
+                                    else -> Icons.Filled.Repeat
+                                }
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) PulseTheme.colors.accentViolet
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Share") },
+                            onClick = {
+                                overflowOpen = false
+                                shareSong(context, song)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Share,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                        )
+                    }
+                }
             }
+        }
+    }
+
+    if (lyricsOpen) {
+        LyricsDialog(
+            song = song,
+            positionMs = state.positionMs,
+            onDismiss = { lyricsOpen = false },
+        )
+    }
+}
+
+/**
+ * Shares the current song via the Android system share sheet. If we have a
+ * cached Genius URL for the song, we share that so the recipient gets an
+ * actual working link. Otherwise we fall back to just the title + artist.
+ *
+ * Uses GlobalScope deliberately: the dialog action is fire-and-forget from
+ * the user's perspective and we don't want to tie the intent launch to a
+ * particular Composable's lifecycle. The disk read is a single primary-key
+ * Room lookup — cheap and bounded.
+ */
+@OptIn(DelicateCoroutinesApi::class)
+private fun shareSong(context: android.content.Context, song: Song) {
+    val app = PulseApplication.get()
+    GlobalScope.launch(Dispatchers.IO) {
+        val cached = app.metadataRepository.getCached(song.id)
+        val url = cached?.geniusUrl
+        val shareText = if (url != null) {
+            "${song.title} — ${song.artist}\n$url"
+        } else {
+            "${song.title} — ${song.artist}"
+        }
+        withContext(Dispatchers.Main) {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share"))
         }
     }
 }
 
 /**
- * Custom progress bar with a thin horizontal track and a vertical-pill
- * scrubber handle, matching the reference design. Supports tap-to-seek
- * and drag-to-seek gestures.
+ * Subtle horizontal sine wave that animates while playing. Flat when paused.
+ * Decorative — doesn't reflect actual audio data.
  */
+@Composable
+private fun WavyPlaybackIndicator(
+    isPlaying: Boolean,
+    progress: Float,
+) {
+    val transition = rememberInfiniteTransition(label = "wave")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "phase",
+    )
+
+    val stroke = MaterialTheme.colorScheme.onBackground
+    val mutedStroke = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp),
+    ) {
+        val w = size.width
+        val h = size.height
+        val midY = h / 2
+        val amplitude = if (isPlaying) h * 0.3f else 0.5f.dp.toPx()
+        val wavelength = w / 4f
+        val splitX = w * progress.coerceIn(0f, 1f)
+
+        val activePath = Path().apply {
+            moveTo(0f, midY)
+            var x = 0f
+            val step = 4f
+            while (x <= splitX) {
+                val t = x / wavelength * 2 * PI.toFloat() + phase
+                val y = midY + sin(t) * amplitude
+                lineTo(x, y)
+                x += step
+            }
+        }
+        val mutedPath = Path().apply {
+            moveTo(splitX, midY)
+            lineTo(w, midY)
+        }
+
+        drawPath(
+            path = activePath,
+            color = stroke,
+            style = Stroke(width = 2.5f.dp.toPx()),
+        )
+        drawPath(
+            path = mutedPath,
+            color = mutedStroke,
+            style = Stroke(width = 2.5f.dp.toPx()),
+        )
+    }
+}
+
 @Composable
 private fun PillScrubber(
     positionMs: Long,
@@ -366,9 +486,7 @@ private fun PillScrubber(
 ) {
     val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
-    // Track the track width so we can convert pointer X to a millisecond position
     var trackWidthPx by remember { mutableStateOf(1f) }
-    // While dragging we want to show the dragged position optimistically
     var dragProgress by remember { mutableFloatStateOf(-1f) }
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
@@ -376,7 +494,7 @@ private fun PillScrubber(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(24.dp)
+                .height(32.dp)
                 .onSizeChanged { size: IntSize -> trackWidthPx = size.width.toFloat().coerceAtLeast(1f) }
                 .pointerInput(durationMs) {
                     detectTapGestures { offset ->
@@ -392,8 +510,7 @@ private fun PillScrubber(
                             dragProgress = (offset.x / trackWidthPx).coerceIn(0f, 1f)
                         },
                         onDrag = { change, _ ->
-                            val newProgress = (change.position.x / trackWidthPx).coerceIn(0f, 1f)
-                            dragProgress = newProgress
+                            dragProgress = (change.position.x / trackWidthPx).coerceIn(0f, 1f)
                         },
                         onDragEnd = {
                             if (dragProgress >= 0f && durationMs > 0) {
@@ -406,7 +523,6 @@ private fun PillScrubber(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            // Inactive track
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -414,7 +530,6 @@ private fun PillScrubber(
                     .clip(RoundedCornerShape(2.dp))
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)),
             )
-            // Active fill
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = shownProgress)
@@ -422,16 +537,15 @@ private fun PillScrubber(
                     .clip(RoundedCornerShape(2.dp))
                     .background(MaterialTheme.colorScheme.onBackground),
             )
-            // Vertical pill handle
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = shownProgress)
-                    .height(24.dp),
+                    .height(32.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 5.dp, height = 18.dp)
+                        .size(width = 6.dp, height = 28.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(MaterialTheme.colorScheme.onBackground),
                 )
@@ -444,7 +558,9 @@ private fun PillScrubber(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = formatDuration(if (dragProgress >= 0f) (dragProgress * durationMs).toLong() else positionMs),
+                text = formatDuration(
+                    if (dragProgress >= 0f) (dragProgress * durationMs).toLong() else positionMs
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -467,20 +583,172 @@ private fun BottomAction(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(18.dp),
         )
         Text(
             text = label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelLarge,
         )
+    }
+}
+
+/**
+ * Lyrics dialog. Fetches synced or plain lyrics from the LyricsRepository
+ * (LRCLIB-backed, cached in Room). When a synced version is available, the
+ * current line is highlighted based on playback position.
+ *
+ * Synced lyrics are stored in LRC format (`[mm:ss.ff] line text`). We parse
+ * once on first render, then the current-line lookup is a binary-search-
+ * grade operation against [positionMs], which is cheap enough to do every
+ * 500ms tick.
+ */
+@Composable
+private fun LyricsDialog(
+    song: Song,
+    positionMs: Long,
+    onDismiss: () -> Unit,
+) {
+    val repo = remember { PulseApplication.get().lyricsRepository }
+
+    val result by produceState<LyricsResult?>(initialValue = null, song.id) {
+        value = repo.lyricsFor(song)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = song.title,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        text = {
+            Column {
+                when (val r = result) {
+                    null -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = "Looking for lyrics…",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                    is LyricsResult.Found -> {
+                        if (r.synced) {
+                            SyncedLyricsBody(lrcText = r.text, positionMs = positionMs)
+                        } else {
+                            // Plain text — scrollable column, no highlighting
+                            val scroll = rememberScrollState()
+                            Column(
+                                modifier = Modifier
+                                    .heightIn(max = 360.dp)
+                                    .verticalScroll(scroll),
+                            ) {
+                                Text(
+                                    text = r.text,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                    }
+                    is LyricsResult.NotFound -> {
+                        Text(
+                            text = "We didn't find lyrics for this one :(",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            text = "Lyrics come from LRCLIB — a free community database. If this track isn't there yet, you can drop a matching .lrc file next to the audio file in your PulseApp folder (feature coming soon).",
+                            color = PulseTheme.colors.textDim,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = MaterialTheme.colorScheme.onBackground)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+/**
+ * Renders synced LRC lyrics with the line corresponding to [positionMs]
+ * highlighted. Auto-scrolls so the current line stays near the center
+ * of the visible area.
+ */
+@Composable
+private fun SyncedLyricsBody(lrcText: String, positionMs: Long) {
+    val lines = remember(lrcText) { com.pulse.music.lyrics.parseLrc(lrcText) }
+    if (lines.isEmpty()) {
+        Text(
+            text = "We have lyrics for this song but they couldn't be parsed.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        return
+    }
+
+    // Find the active line — the last line whose timestamp has passed.
+    val activeIndex = remember(positionMs, lines) {
+        var found = -1
+        for (i in lines.indices) {
+            if (lines[i].timestampMs <= positionMs) found = i
+            else break
+        }
+        found.coerceAtLeast(0)
+    }
+
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(activeIndex) {
+        // Keep the active line roughly centered. Offset by a few items so
+        // the user sees upcoming lyrics, not just what's already been sung.
+        val target = (activeIndex - 2).coerceAtLeast(0)
+        listState.animateScrollToItem(target)
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.heightIn(max = 360.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(lines.size) { i ->
+            val line = lines[i]
+            val isActive = i == activeIndex
+            Text(
+                text = line.text,
+                color = if (isActive) MaterialTheme.colorScheme.onBackground
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = if (isActive) MaterialTheme.typography.bodyLarge
+                else MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
+            )
+        }
     }
 }

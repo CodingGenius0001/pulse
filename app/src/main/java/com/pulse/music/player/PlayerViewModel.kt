@@ -134,15 +134,18 @@ class PlayerViewModel(
 
     /**
      * Play a list of songs starting at [startIndex].
+     * Dedupes by song ID to guard against the same track being queued twice.
      */
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
         val c = controller ?: return
-        currentQueue = songs
-        val items = songs.map { it.toMediaItem() }
-        c.setMediaItems(items, startIndex, 0L)
+        val deduped = songs.distinctBy { it.id }
+        val adjustedStart = startIndex.coerceIn(0, (deduped.size - 1).coerceAtLeast(0))
+        currentQueue = deduped
+        val items = deduped.map { it.toMediaItem() }
+        c.setMediaItems(items, adjustedStart, 0L)
         c.prepare()
         c.play()
-        _state.value = _state.value.copy(queue = songs)
+        _state.value = _state.value.copy(queue = deduped, currentIndex = adjustedStart)
     }
 
     fun playOrPause() {
@@ -183,6 +186,51 @@ class PlayerViewModel(
         val c = controller ?: return
         val target = (c.currentPosition - 10_000L).coerceAtLeast(0)
         c.seekTo(target)
+    }
+
+    /** Jump to a specific index in the current queue (for tapping items in Queue view). */
+    fun jumpToQueueIndex(index: Int) {
+        val c = controller ?: return
+        if (index in 0 until c.mediaItemCount) {
+            c.seekTo(index, 0L)
+            c.play()
+        }
+    }
+
+    /**
+     * Move an item in the queue from [fromIndex] to [toIndex].
+     * Both indices are in terms of the current mediaItem positions.
+     */
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val c = controller ?: return
+        val count = c.mediaItemCount
+        if (fromIndex !in 0 until count || toIndex !in 0 until count || fromIndex == toIndex) return
+        c.moveMediaItem(fromIndex, toIndex)
+
+        // Also update our local cache so PlaybackState reflects the new order
+        val reordered = currentQueue.toMutableList().apply {
+            val item = removeAt(fromIndex)
+            add(toIndex.coerceAtMost(size), item)
+        }
+        currentQueue = reordered
+        _state.value = _state.value.copy(
+            queue = reordered,
+            currentIndex = c.currentMediaItemIndex,
+        )
+    }
+
+    /** Remove a queue item at the given index. Cannot remove the currently playing one. */
+    fun removeFromQueue(index: Int) {
+        val c = controller ?: return
+        if (index == c.currentMediaItemIndex) return
+        if (index !in 0 until c.mediaItemCount) return
+        c.removeMediaItem(index)
+        val reordered = currentQueue.toMutableList().apply { removeAt(index) }
+        currentQueue = reordered
+        _state.value = _state.value.copy(
+            queue = reordered,
+            currentIndex = c.currentMediaItemIndex,
+        )
     }
 
     fun toggleShuffle() {

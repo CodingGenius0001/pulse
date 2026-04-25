@@ -54,6 +54,7 @@ import com.pulse.music.util.gradientFor
 fun ForYouScreen(
     onSongTap: (List<Song>, Int) -> Unit,
     onHeroPlay: (List<Song>) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
@@ -72,7 +73,7 @@ fun ForYouScreen(
             bottom = BottomBarContentPadding.calculateBottomPadding(),
         ),
     ) {
-        item { AppBar(userName = userName) }
+        item { AppBar(userName = userName, onOpenSettings = onOpenSettings) }
 
         item {
             Spacer(Modifier.height(4.dp))
@@ -155,7 +156,7 @@ fun ForYouScreen(
             item {
                 EmptyState(
                     folderExists = folderState.exists,
-                    folderPath = folderState.path,
+                    folderPath = folderState.displayPath,
                     onCreateFolder = { vm.createPulseFolder() },
                     onRescan = { vm.rescan() },
                 )
@@ -165,7 +166,7 @@ fun ForYouScreen(
 }
 
 @Composable
-private fun AppBar(userName: String) {
+private fun AppBar(userName: String, onOpenSettings: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -187,7 +188,8 @@ private fun AppBar(userName: String) {
                         Brush.linearGradient(
                             listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink)
                         )
-                    ),
+                    )
+                    .clickable(onClick = onOpenSettings),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(

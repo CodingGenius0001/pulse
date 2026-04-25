@@ -23,8 +23,8 @@ class MusicScanner(private val context: Context) {
 
     /**
      * Resolves the expected Pulse folder locations on this device. We check
-     * both /Music/Pulse/ (the standard location) and /Pulse/ (if the user
-     * prefers a top-level folder). First one that exists wins.
+     * /Music/PulseApp/ first (our preferred location going forward) and fall
+     * back to /Music/Pulse/ and /Pulse/ for users upgrading from v0.2.
      */
     private fun pulseFolderCandidates(): List<File> {
         val musicDir = Environment.getExternalStoragePublicDirectory(
@@ -32,8 +32,9 @@ class MusicScanner(private val context: Context) {
         )
         val externalRoot = Environment.getExternalStorageDirectory()
         return listOf(
-            File(musicDir, "Pulse"),
-            File(externalRoot, "Pulse"),
+            File(musicDir, "PulseApp"),   // primary — new in v0.4
+            File(musicDir, "Pulse"),      // legacy fallback
+            File(externalRoot, "Pulse"),  // legacy fallback
         )
     }
 
@@ -41,15 +42,29 @@ class MusicScanner(private val context: Context) {
     fun preferredPulseFolder(): File = pulseFolderCandidates().firstOrNull { it.exists() }
         ?: pulseFolderCandidates().first() // default: /Music/Pulse/
 
+    /**
+     * Pretty-printed version of the preferred folder — strips the
+     * /storage/emulated/0/ prefix so users see "Music/Pulse" instead of the
+     * full Android internal storage path.
+     */
+    fun shortDisplayPath(): String {
+        val full = preferredPulseFolder().absolutePath
+        return full
+            .removePrefix("/storage/emulated/0/")
+            .removePrefix(Environment.getExternalStorageDirectory().absolutePath + "/")
+            .removePrefix("/")
+            .ifBlank { "Music/PulseApp" }
+    }
+
     /** Whether any Pulse folder exists on the device right now. */
     fun pulseFolderExists(): Boolean = pulseFolderCandidates().any { it.exists() }
 
     /**
-     * Creates the default Pulse folder at /Music/Pulse/. Safe to call even
+     * Creates the default Pulse folder at /Music/PulseApp/. Safe to call even
      * if it already exists. Returns true if folder is now usable.
      */
     fun createPulseFolder(): Boolean {
-        val target = pulseFolderCandidates().first() // /Music/Pulse/
+        val target = pulseFolderCandidates().first() // /Music/PulseApp/
         return try {
             target.exists() || target.mkdirs()
         } catch (e: Exception) {
@@ -66,12 +81,25 @@ class MusicScanner(private val context: Context) {
 
         val folders = pulseFolderCandidates().filter { it.exists() }
         val allResults = mutableListOf<Song>()
-        val seenIds = mutableSetOf<Long>()
+
+        // Dedupe by: absolute file path (primary), and by a content key of
+        // (title|artist|duration-rounded-to-seconds) as a secondary safety net.
+        // Same physical file returned by two queries will collide on path;
+        // near-identical files from different scans will collide on content key.
+        val seenPaths = mutableSetOf<String>()
+        val seenContentKeys = mutableSetOf<String>()
 
         for (folder in folders) {
             val folderPath = folder.absolutePath
             queryAudioInFolder(folderPath).forEach { song ->
-                if (seenIds.add(song.id)) {
+                val pathKey = song.dataPath.takeIf { it.isNotBlank() }
+                val contentKey = "${song.title.lowercase()}|${song.artist.lowercase()}|${song.durationMs / 1000}"
+
+                val isDuplicate = (pathKey != null && pathKey in seenPaths) ||
+                        contentKey in seenContentKeys
+                if (!isDuplicate) {
+                    if (pathKey != null) seenPaths.add(pathKey)
+                    seenContentKeys.add(contentKey)
                     allResults.add(song)
                 }
             }

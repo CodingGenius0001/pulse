@@ -32,12 +32,14 @@ import com.pulse.music.ui.components.PulseBottomNav
 import com.pulse.music.ui.screens.ForYouScreen
 import com.pulse.music.ui.screens.LibraryScreen
 import com.pulse.music.ui.screens.NowPlayingScreen
+import com.pulse.music.ui.screens.QueueScreen
 import com.pulse.music.ui.screens.SearchScreen
 import com.pulse.music.ui.screens.SettingsScreen
 
 /**
- * Root composable. Owns the nav controller, bottom nav, and mini-player overlay.
- * Now Playing is rendered as a full-height modal sliding up from the bottom.
+ * Root composable. Owns the nav controller, bottom nav, mini-player, and
+ * overlays for Now Playing + Queue. Tab-bar navigation is standard NavHost;
+ * Now Playing and Queue are full-height modals sliding up from the bottom.
  */
 @Composable
 fun PulseApp() {
@@ -46,6 +48,7 @@ fun PulseApp() {
     val playbackState by playerVm.state.collectAsStateWithLifecycle()
 
     var showNowPlaying by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -70,6 +73,9 @@ fun PulseApp() {
                             onHeroPlay = { songs ->
                                 playerVm.playQueue(songs, 0)
                                 showNowPlaying = true
+                            },
+                            onOpenSettings = {
+                                navigateTo(navController, Destination.Settings)
                             },
                         )
                     }
@@ -124,6 +130,7 @@ fun PulseApp() {
             }
         }
 
+        // Now Playing overlay
         AnimatedVisibility(
             visible = showNowPlaying && playbackState.currentSong != null,
             enter = slideInVertically(initialOffsetY = { it }),
@@ -132,6 +139,19 @@ fun PulseApp() {
         ) {
             NowPlayingScreen(
                 onBack = { showNowPlaying = false },
+                onOpenQueue = { showQueue = true },
+            )
+        }
+
+        // Queue overlay — sits above Now Playing
+        AnimatedVisibility(
+            visible = showQueue && playbackState.currentSong != null,
+            enter = slideInVertically(initialOffsetY = { it }),
+            exit = slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            QueueScreen(
+                onBack = { showQueue = false },
             )
         }
     }
