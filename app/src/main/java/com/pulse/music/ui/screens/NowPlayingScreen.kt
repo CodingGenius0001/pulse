@@ -218,12 +218,8 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(18.dp))
 
-            WavyPlaybackIndicator(
+            WavyScrubber(
                 isPlaying = state.isPlaying,
-                progress = if (state.durationMs > 0) state.positionMs.toFloat() / state.durationMs else 0f,
-            )
-            Spacer(Modifier.height(4.dp))
-            PillScrubber(
                 positionMs = state.positionMs,
                 durationMs = state.durationMs,
                 onSeek = { vm.seekTo(it) },
@@ -415,14 +411,33 @@ private fun shareSong(context: android.content.Context, song: Song) {
 }
 
 /**
- * Subtle horizontal sine wave that animates while playing. Flat when paused.
- * Decorative — doesn't reflect actual audio data.
+ * Combined wave + scrubber. Layout:
+ *
+ *   ┌─────────────────────────────── 48dp tall drag area ───────────────────┐
+ *   │                                                                       │
+ *   │  ╭┄┄╮╭┄┄╮ wave behind ╭┄┄╮  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │   ← thin track baseline
+ *   │  ╰┄┄╯╰┄┄╯              ┃ pill                                          │
+ *   │                                                                       │
+ *   └───────────────────────────────────────────────────────────────────────┘
+ *      0:18                                                            2:56
+ *
+ * The wave traces along the played portion (left of pill), drawn first so
+ * the pill handle and unplayed track sit on top of it. Drag area is 48dp
+ * tall — comfortable for thumb gestures, much easier than the old 32dp.
  */
 @Composable
-private fun WavyPlaybackIndicator(
+private fun WavyScrubber(
     isPlaying: Boolean,
-    progress: Float,
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
 ) {
+    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+
+    var trackWidthPx by remember { mutableStateOf(1f) }
+    var dragProgress by remember { mutableFloatStateOf(-1f) }
+    val shownProgress = if (dragProgress >= 0f) dragProgress else progress
+
     val transition = rememberInfiniteTransition(label = "wave")
     val phase by transition.animateFloat(
         initialValue = 0f,
@@ -434,67 +449,15 @@ private fun WavyPlaybackIndicator(
         label = "phase",
     )
 
-    val stroke = MaterialTheme.colorScheme.onBackground
-    val mutedStroke = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
-
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(28.dp),
-    ) {
-        val w = size.width
-        val h = size.height
-        val midY = h / 2
-        val amplitude = if (isPlaying) h * 0.3f else 0.5f.dp.toPx()
-        val wavelength = w / 4f
-        val splitX = w * progress.coerceIn(0f, 1f)
-
-        val activePath = Path().apply {
-            moveTo(0f, midY)
-            var x = 0f
-            val step = 4f
-            while (x <= splitX) {
-                val t = x / wavelength * 2 * PI.toFloat() + phase
-                val y = midY + sin(t) * amplitude
-                lineTo(x, y)
-                x += step
-            }
-        }
-        val mutedPath = Path().apply {
-            moveTo(splitX, midY)
-            lineTo(w, midY)
-        }
-
-        drawPath(
-            path = activePath,
-            color = stroke,
-            style = Stroke(width = 2.5f.dp.toPx()),
-        )
-        drawPath(
-            path = mutedPath,
-            color = mutedStroke,
-            style = Stroke(width = 2.5f.dp.toPx()),
-        )
-    }
-}
-
-@Composable
-private fun PillScrubber(
-    positionMs: Long,
-    durationMs: Long,
-    onSeek: (Long) -> Unit,
-) {
-    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-
-    var trackWidthPx by remember { mutableStateOf(1f) }
-    var dragProgress by remember { mutableFloatStateOf(-1f) }
-    val shownProgress = if (dragProgress >= 0f) dragProgress else progress
+    val activeColor = MaterialTheme.colorScheme.onBackground
+    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp)
+                // Generous tap target — easier than the old 32dp.
+                .height(48.dp)
                 .onSizeChanged { size: IntSize -> trackWidthPx = size.width.toFloat().coerceAtLeast(1f) }
                 .pointerInput(durationMs) {
                     detectTapGestures { offset ->
@@ -523,38 +486,79 @@ private fun PillScrubber(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
+            // Layer 1: animated wave on the played portion (drawn first,
+            // sits behind the track and pill handle).
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+            ) {
+                val w = size.width
+                val h = size.height
+                val midY = h / 2
+                val amplitude = if (isPlaying) 6.dp.toPx() else 0f
+                val wavelength = w / 8f
+                val splitX = w * shownProgress.coerceIn(0f, 1f)
+
+                if (splitX > 0f && amplitude > 0f) {
+                    val activePath = Path().apply {
+                        moveTo(0f, midY)
+                        var x = 0f
+                        val step = 4f
+                        while (x <= splitX) {
+                            val t = x / wavelength * 2 * PI.toFloat() + phase
+                            val y = midY + sin(t) * amplitude
+                            lineTo(x, y)
+                            x += step
+                        }
+                    }
+                    drawPath(
+                        path = activePath,
+                        color = activeColor.copy(alpha = 0.6f),
+                        style = Stroke(width = 2f.dp.toPx()),
+                    )
+                }
+            }
+
+            // Layer 2: muted track running full width (the 'unplayed' baseline).
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)),
+                    .background(mutedColor),
             )
+
+            // Layer 3: solid played fill from 0 to current position.
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = shownProgress)
                     .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onBackground),
+                    .background(activeColor),
             )
+
+            // Layer 4: vertical pill handle, taller than the track so it's
+            // clearly draggable.
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = shownProgress)
-                    .height(32.dp),
+                    .height(48.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 6.dp, height = 28.dp)
+                        .size(width = 6.dp, height = 32.dp)
                         .clip(RoundedCornerShape(3.dp))
-                        .background(MaterialTheme.colorScheme.onBackground),
+                        .background(activeColor),
                 )
             }
         }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp),
+                .padding(top = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(

@@ -32,11 +32,27 @@ object GeniusApi {
 
     /**
      * Search Genius for a song. Returns the top hit's ID and URL, or null if
-     * no hit matched or auth is missing.
+     * no hit matched, the artist is unknown (matching is too loose without
+     * one), or auth is missing.
+     *
+     * Sanity-checks the matched result's artist against ours: if Genius's
+     * top hit is by a wildly different artist (e.g. searching "Animals" by
+     * Maroon 5 returns "Animals" by some random producer), we reject the
+     * match rather than show wrong artwork. Empirical threshold: lowercase
+     * substring match in either direction is good enough for legitimate
+     * matches like "Sia" vs "Sia feat. Sean Paul".
      */
     suspend fun search(title: String, artist: String): SearchHit? = withContext(Dispatchers.IO) {
         val token = BuildConfig.GENIUS_ACCESS_TOKEN
         if (token.isBlank()) return@withContext null
+
+        // Without a real artist name, Genius matching is too loose — we'd
+        // grab whatever's popular under that title and end up with the
+        // wrong artwork. Better to show the gradient fallback than a wrong
+        // album cover.
+        if (artist.isBlank() || artist.equals("Unknown artist", ignoreCase = true)) {
+            return@withContext null
+        }
 
         val url = "$BASE_URL/search".toHttpUrl()
             .newBuilder()
@@ -54,16 +70,30 @@ object GeniusApi {
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(SearchResponse.serializer(), body)
-                // Genius returns hits in order of relevance. Top hit wins.
-                parsed.response.hits.firstOrNull()?.result?.let { r ->
-                    SearchHit(
-                        id = r.id,
-                        url = r.url,
-                        title = r.title,
-                        artist = r.primaryArtist?.name,
-                        artworkUrl = r.songArtImageUrl ?: r.headerImageUrl,
-                    )
-                }
+
+                // Walk hits in relevance order, return the first one whose
+                // artist is plausibly the same as ours.
+                val expectedArtistLower = artist.lowercase()
+                val firstGoodHit = parsed.response.hits.firstOrNull { hit ->
+                    val resultArtistLower = hit.result.primaryArtist?.name?.lowercase() ?: return@firstOrNull false
+                    // Substring either way handles "Sia" vs "Sia feat. Sean Paul",
+                    // "The Beatles" vs "Beatles", etc., while still rejecting
+                    // unrelated artists like "Maroon 5" vs "Architects".
+                    resultArtistLower.contains(expectedArtistLower) ||
+                        expectedArtistLower.contains(resultArtistLower)
+                } ?: return@withContext null
+
+                val r = firstGoodHit.result
+                SearchHit(
+                    id = r.id,
+                    url = r.url,
+                    title = r.title,
+                    artist = r.primaryArtist?.name,
+                    // Prefer song_art_image_url (square album cover) over
+                    // header_image_url (banner image, often unrelated to the
+                    // album — that's where the LOSTWAVE picture came from).
+                    artworkUrl = r.songArtImageUrl,
+                )
             }
         } catch (e: Exception) {
             null
@@ -96,7 +126,11 @@ object GeniusApi {
                     title = s.title,
                     artist = s.primaryArtist?.name,
                     album = s.album?.name,
-                    artworkUrl = s.songArtImageUrl ?: s.headerImageUrl,
+                    // song_art_image_url is the square album cover.
+                    // header_image_url is a banner that's often unrelated
+                    // and/or generic ("LOSTWAVE", random K-pop poster).
+                    // Always prefer the album art.
+                    artworkUrl = s.songArtImageUrl,
                     releaseDate = s.releaseDateForDisplay,
                 )
             }

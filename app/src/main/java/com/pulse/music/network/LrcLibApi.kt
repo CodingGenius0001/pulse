@@ -8,24 +8,31 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 
 /**
- * LRCLIB API — fetches synced or plain lyrics keyed by track+artist+album+duration.
+ * LRCLIB API — fetches synced or plain lyrics by track + artist + album + duration.
  *
- * LRCLIB is a free, open, crowd-sourced lyrics database (https://lrclib.net).
- * No token required, but they ask nicely for a distinctive User-Agent so they
- * can attribute traffic and contact the app author if something goes wrong.
+ * LRCLIB has TWO relevant endpoints and we use both:
  *
- * Returned payload:
- *   - syncedLyrics: LRC-format string like `[00:12.34] Line 1\n[00:15.67] Line 2`
- *   - plainLyrics: fallback if no synced version exists for this exact track
- *   - instrumental: true when the track is flagged as having no lyrics at all
+ *  1. /api/get — exact match. All four fields must line up with what's in LRCLIB's
+ *     database. Returns 404 when any field doesn't match (album mismatch is the
+ *     most common cause — users' files often have generic album names like the
+ *     folder name, but LRCLIB has the canonical album).
  *
- * If the track isn't in the DB, /api/get returns 404. We treat that as
- * "NotFound" rather than an error so we can cache the miss and avoid
- * hammering the network on every dialog open.
+ *  2. /api/search — fuzzy. Takes track_name + artist_name (no album, no duration)
+ *     and returns a list of candidate matches with their lyrics already populated.
+ *     We use this as a fallback when /get 404s.
+ *
+ * The fallback chain looks like:
+ *   try /get with all four fields → if 404 →
+ *   try /search with track + artist → pick best match by closest duration →
+ *   if still no result → NotFound.
+ *
+ * This is what makes "Anyone" by Seventeen work: the file's album is "Pulse"
+ * (folder leaking in) but LRCLIB has it as "Your Choice", so /get 404s, and
+ * /search rescues the lookup.
  */
 object LrcLibApi {
 
-    private const val BASE_URL = "https://lrclib.net/api/get"
+    private const val BASE_URL = "https://lrclib.net/api"
     private const val USER_AGENT = "Pulse-Android/0.4 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
@@ -44,12 +51,9 @@ object LrcLibApi {
     }
 
     /**
-     * Fetch lyrics for a track. All four params are used by LRCLIB to find
-     * the exact right version of the track (important for albums where the
-     * album cut and single cut have different timings).
-     *
-     * [durationSeconds] can be approximate — LRCLIB allows a small tolerance
-     * internally, so passing durationMs/1000 is fine.
+     * Try to find lyrics for a track. Hits /get first; if that 404s, falls
+     * back to /search and picks the best candidate by closest duration to
+     * what we expected.
      */
     suspend fun fetch(
         trackName: String,
@@ -57,7 +61,29 @@ object LrcLibApi {
         albumName: String,
         durationSeconds: Long,
     ): LrcLibResponse = withContext(Dispatchers.IO) {
-        val url = BASE_URL.toHttpUrl()
+        // Don't even bother if the artist is unknown — LRCLIB's matching
+        // gets very loose and we'll grab the wrong song.
+        if (artistName.isBlank() || artistName.equals("Unknown artist", ignoreCase = true)) {
+            return@withContext LrcLibResponse.NotFound
+        }
+
+        val exact = exactGet(trackName, artistName, albumName, durationSeconds)
+        if (exact !is LrcLibResponse.NotFound) return@withContext exact
+
+        // Exact match failed — try the fuzzy /search and pick the closest by duration.
+        searchFallback(trackName, artistName, durationSeconds)
+    }
+
+    /**
+     * Hit /api/get with all four fields. Returns Found, NotFound (on 404), or Error.
+     */
+    private suspend fun exactGet(
+        trackName: String,
+        artistName: String,
+        albumName: String,
+        durationSeconds: Long,
+    ): LrcLibResponse {
+        val url = "$BASE_URL/get".toHttpUrl()
             .newBuilder()
             .addQueryParameter("track_name", trackName)
             .addQueryParameter("artist_name", artistName)
@@ -71,14 +97,13 @@ object LrcLibApi {
             .get()
             .build()
 
-        try {
+        return try {
             HttpClient.instance.newCall(request).execute().use { response ->
                 when {
                     response.code == 404 -> LrcLibResponse.NotFound
                     !response.isSuccessful -> LrcLibResponse.Error
                     else -> {
-                        val body = response.body?.string()
-                            ?: return@use LrcLibResponse.Error
+                        val body = response.body?.string() ?: return@use LrcLibResponse.Error
                         val parsed = json.decodeFromString(GetResponse.serializer(), body)
                         LrcLibResponse.Found(
                             plainLyrics = parsed.plainLyrics?.takeIf { it.isNotBlank() },
@@ -93,6 +118,64 @@ object LrcLibApi {
         }
     }
 
+    /**
+     * Fall back to /api/search with just track + artist. Picks the candidate
+     * whose duration is closest to ours, within a 5-second tolerance — beyond
+     * that, we'd risk grabbing a different song with the same name.
+     *
+     * /search returns a JSON array. Each entry already has plainLyrics +
+     * syncedLyrics populated, so a single roundtrip is enough.
+     */
+    private suspend fun searchFallback(
+        trackName: String,
+        artistName: String,
+        durationSeconds: Long,
+    ): LrcLibResponse {
+        val url = "$BASE_URL/search".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("track_name", trackName)
+            .addQueryParameter("artist_name", artistName)
+            .build()
+
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        return try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use LrcLibResponse.Error
+                val body = response.body?.string() ?: return@use LrcLibResponse.Error
+                val candidates = json.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(SearchResultDto.serializer()),
+                    body,
+                )
+                if (candidates.isEmpty()) return@use LrcLibResponse.NotFound
+
+                // Pick the candidate whose duration is closest to ours.
+                // 5-second tolerance: cuts of the same track might differ by a
+                // beat or two; songs with the same title but very different
+                // lengths are different songs.
+                val best = candidates.minByOrNull { c ->
+                    kotlin.math.abs(c.duration - durationSeconds)
+                } ?: return@use LrcLibResponse.NotFound
+
+                if (kotlin.math.abs(best.duration - durationSeconds) > 5) {
+                    return@use LrcLibResponse.NotFound
+                }
+
+                LrcLibResponse.Found(
+                    plainLyrics = best.plainLyrics?.takeIf { it.isNotBlank() },
+                    syncedLyrics = best.syncedLyrics?.takeIf { it.isNotBlank() },
+                    instrumental = best.instrumental,
+                )
+            }
+        } catch (e: Exception) {
+            LrcLibResponse.Error
+        }
+    }
+
     @Serializable
     private data class GetResponse(
         val id: Long = 0,
@@ -101,6 +184,19 @@ object LrcLibApi {
         val artistName: String? = null,
         val albumName: String? = null,
         val duration: Double? = null,
+        val instrumental: Boolean = false,
+        val plainLyrics: String? = null,
+        val syncedLyrics: String? = null,
+    )
+
+    @Serializable
+    private data class SearchResultDto(
+        val id: Long = 0,
+        val name: String? = null,
+        val trackName: String? = null,
+        val artistName: String? = null,
+        val albumName: String? = null,
+        val duration: Long = 0,
         val instrumental: Boolean = false,
         val plainLyrics: String? = null,
         val syncedLyrics: String? = null,
