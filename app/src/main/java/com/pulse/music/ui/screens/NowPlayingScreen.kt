@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -68,8 +69,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -96,8 +96,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.PI
-import kotlin.math.sin
 
 @Composable
 fun NowPlayingScreen(
@@ -414,16 +412,21 @@ private fun shareSong(context: android.content.Context, song: Song) {
  * Combined wave + scrubber. Layout:
  *
  *   ┌─────────────────────────────── 48dp tall drag area ───────────────────┐
- *   │                                                                       │
- *   │  ╭┄┄╮╭┄┄╮ wave behind ╭┄┄╮  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │   ← thin track baseline
- *   │  ╰┄┄╯╰┄┄╯              ┃ pill                                          │
- *   │                                                                       │
+ *   │   ╿╷╽╷╿╿╷╽╿╷╽╾╾╾╾╾╾  ┃  ─────────────────────────────────────────────  │
+ *   │   wave (random bars)  pill           thin muted track (unplayed)       │
  *   └───────────────────────────────────────────────────────────────────────┘
  *      0:18                                                            2:56
  *
- * The wave traces along the played portion (left of pill), drawn first so
- * the pill handle and unplayed track sit on top of it. Drag area is 48dp
- * tall — comfortable for thumb gestures, much easier than the old 32dp.
+ * The wave on the played side is drawn as ~60 vertical bars with
+ * deterministic-but-varied heights — looks like a real audio waveform
+ * rather than a smooth sine. The pill scrubber sits between the played
+ * (wave) and unplayed (thin line) regions. When playback pauses, the
+ * amplitude smoothly animates down to a flat line.
+ *
+ * The bar heights are seeded by index — same shape every render, but
+ * different heights per bar. We could re-seed per song for variety, but
+ * for now a single global pattern is consistent with what users see in
+ * other minimal players.
  */
 @Composable
 private fun WavyScrubber(
@@ -438,25 +441,36 @@ private fun WavyScrubber(
     var dragProgress by remember { mutableFloatStateOf(-1f) }
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
+    // Phase animation drives the horizontal scroll — bars appear to "march"
+    // toward the pill while playing.
     val transition = rememberInfiniteTransition(label = "wave")
     val phase by transition.animateFloat(
         initialValue = 0f,
-        targetValue = (2 * PI).toFloat(),
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "phase",
     )
 
+    // Amplitude animates between 0 (paused, flat) and 1 (playing, full
+    // height). When the user hits pause, bars don't snap flat — they
+    // gracefully shrink over ~600ms. Same for play, growing in.
+    val amplitudeTarget = if (isPlaying) 1f else 0f
+    val amplitude by animateFloatAsState(
+        targetValue = amplitudeTarget,
+        animationSpec = tween(durationMillis = 600, easing = LinearEasing),
+        label = "amplitude",
+    )
+
     val activeColor = MaterialTheme.colorScheme.onBackground
-    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                // Generous tap target — easier than the old 32dp.
                 .height(48.dp)
                 .onSizeChanged { size: IntSize -> trackWidthPx = size.width.toFloat().coerceAtLeast(1f) }
                 .pointerInput(durationMs) {
@@ -486,8 +500,9 @@ private fun WavyScrubber(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            // Layer 1: animated wave on the played portion (drawn first,
-            // sits behind the track and pill handle).
+            // The whole bar+track display lives in a single Canvas. Drawing
+            // everything in one pass avoids the "two parallel lines" look
+            // the old layered Boxes produced.
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -496,50 +511,55 @@ private fun WavyScrubber(
                 val w = size.width
                 val h = size.height
                 val midY = h / 2
-                val amplitude = if (isPlaying) 6.dp.toPx() else 0f
-                val wavelength = w / 8f
                 val splitX = w * shownProgress.coerceIn(0f, 1f)
 
-                if (splitX > 0f && amplitude > 0f) {
-                    val activePath = Path().apply {
-                        moveTo(0f, midY)
-                        var x = 0f
-                        val step = 4f
-                        while (x <= splitX) {
-                            val t = x / wavelength * 2 * PI.toFloat() + phase
-                            val y = midY + sin(t) * amplitude
-                            lineTo(x, y)
-                            x += step
-                        }
-                    }
-                    drawPath(
-                        path = activePath,
-                        color = activeColor.copy(alpha = 0.6f),
-                        style = Stroke(width = 2f.dp.toPx()),
+                // Wave parameters
+                val barCount = 64                            // total bars across full width
+                val barSpacingPx = w / barCount              // distance between bar centers
+                val barWidthPx = 2f.dp.toPx()                // each bar is 2dp wide
+                val maxAmplitudePx = 8f.dp.toPx()            // tallest bar at full amplitude
+                val minBarHeightPx = 2f.dp.toPx()            // even at amplitude 0, draw a small dot so the line is continuous
+                val scrollOffset = phase * barSpacingPx * 4  // phase * 4 bars/cycle = leftward drift
+
+                // Draw bars on the PLAYED side only (left of pill).
+                // We iterate bar indices, compute screen X with the scroll
+                // offset, and draw if it falls in the played region.
+                for (i in 0..barCount) {
+                    val barCenterX = (i * barSpacingPx) - (scrollOffset % barSpacingPx)
+                    if (barCenterX < 0f || barCenterX > splitX) continue
+
+                    // Pseudo-random height per bar, using a hash of the
+                    // bar's "logical" index (which doesn't change as bars
+                    // scroll, so peaks stay attached to their bars).
+                    val logicalIndex = i + (scrollOffset / barSpacingPx).toInt()
+                    val randomHeight = pseudoRandomHeight(logicalIndex)
+
+                    // height = baseline + random-modulated * amplitude
+                    val barHeight = minBarHeightPx + randomHeight * maxAmplitudePx * amplitude
+
+                    drawLine(
+                        color = activeColor,
+                        start = Offset(barCenterX, midY - barHeight / 2),
+                        end = Offset(barCenterX, midY + barHeight / 2),
+                        strokeWidth = barWidthPx,
+                        cap = StrokeCap.Round,
                     )
                 }
+
+                // Thin muted track on the UNPLAYED side (right of pill only).
+                // No track on the played side — the bars themselves are the
+                // visual indicator there.
+                drawLine(
+                    color = mutedColor,
+                    start = Offset(splitX, midY),
+                    end = Offset(w, midY),
+                    strokeWidth = 2f.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
             }
 
-            // Layer 2: muted track running full width (the 'unplayed' baseline).
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(mutedColor),
-            )
-
-            // Layer 3: solid played fill from 0 to current position.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction = shownProgress)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(activeColor),
-            )
-
-            // Layer 4: vertical pill handle, taller than the track so it's
-            // clearly draggable.
+            // Vertical pill handle, taller than the bars so it stands out
+            // as the draggable element.
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fraction = shownProgress)
@@ -575,6 +595,24 @@ private fun WavyScrubber(
             )
         }
     }
+}
+
+/**
+ * Deterministic pseudo-random height in [0.25, 1.0] for a given bar index.
+ * Same index always returns the same value, so as bars scroll they don't
+ * shimmer randomly — each "logical" bar keeps its own height.
+ *
+ * Uses a tiny xorshift-style hash on the int — fast, stable, no allocation.
+ */
+private fun pseudoRandomHeight(index: Int): Float {
+    var h = (index * 0x9E3779B1.toInt()) xor 0x6C078965
+    h = h xor (h ushr 16)
+    h = (h * 0x85EBCA6B.toInt())
+    h = h xor (h ushr 13)
+    // Map the lower 8 bits to [0.25, 1.0] — even the shortest bar is 25% of
+    // max so the wave never looks flat-with-spikes; it always reads as a wave.
+    val unit = ((h and 0xFF) / 255f).coerceIn(0f, 1f)
+    return 0.25f + unit * 0.75f
 }
 
 @Composable

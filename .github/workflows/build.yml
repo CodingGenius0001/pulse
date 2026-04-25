@@ -1,7 +1,19 @@
 name: Build debug APK
 
-# Builds a debug APK on every push and pull request.
-# Download the APK from the "Artifacts" section of each workflow run.
+# What this workflow does:
+#
+#  1. Every push and pull request -> build a debug APK and upload it as a
+#     workflow Artifact (the temporary kind that lives on the Actions tab).
+#  2. Pushes to main -> ALSO publish a GitHub Release with the APK attached.
+#     - A versioned release tagged `build-<run_number>-<sha>` accumulates
+#       in the Releases page, so you can always grab any historical build.
+#     - A floating release tagged `latest` is overwritten each time, giving
+#       you a permanent download URL that always points at the newest build:
+#         https://github.com/CodingGenius0001/pulse/releases/latest/download/pulse-debug.apk
+#
+# Concurrency: pushes that come in while a build is running cancel the
+# previous run on the same ref. Saves CI minutes and avoids racing two
+# release publishes at the same SHA.
 
 on:
   push:
@@ -9,6 +21,13 @@ on:
   pull_request:
     branches: ["**"]
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # needed for the release-creation steps below
 
 jobs:
   build:
@@ -46,10 +65,76 @@ jobs:
           GENIUS_ACCESS_TOKEN: ${{ secrets.GENIUS_ACCESS_TOKEN }}
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      # Rename so the file in the Release artifacts list is more recognizable
+      # than 'app-debug.apk'. Doesn't change the artifact upload below.
+      - name: Stage APK with friendly name
+        run: |
+          mkdir -p release-staging
+          cp app/build/outputs/apk/debug/app-debug.apk release-staging/pulse-debug.apk
+
+      - name: Upload workflow artifact (always)
         uses: actions/upload-artifact@v4
         with:
           name: pulse-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: release-staging/pulse-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      # ──────────────────────────────────────────────────────────────────
+      # Below: only on pushes to main. Pull requests and feature branches
+      # don't publish releases — they just upload the artifact.
+      # ──────────────────────────────────────────────────────────────────
+
+      - name: Compute release tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "versioned_tag=build-${{ github.run_number }}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish versioned release (immutable history)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.versioned_tag }}
+          name: "Build #${{ github.run_number }} (${{ steps.tag.outputs.short_sha }})"
+          body: |
+            Automated debug build from commit ${{ github.sha }}.
+
+            **Install:**
+            1. Download `pulse-debug.apk` below.
+            2. Uninstall any existing Pulse build first (debug signatures change every CI run, so installs over an existing build will fail).
+            3. Tap the APK on your phone — Android may warn about unknown sources; allow it for whichever app opened the file.
+
+            **Commit message:** ${{ github.event.head_commit.message }}
+          files: release-staging/pulse-debug.apk
+          prerelease: true   # marked pre-release since it's a debug build, not signed for production
+
+      - name: Delete previous 'latest' tag/release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # action-gh-release can update an existing release's assets and notes
+        # but won't move the underlying git tag to the new commit. So we
+        # delete both the release and the tag first, then recreate. The `|| true`
+        # guard makes the very first run (when nothing exists yet) a no-op.
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+
+      - name: Update 'latest' floating release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest debug build"
+          body: |
+            **This release auto-updates with every push to main.**
+
+            Permanent download link (always newest):
+            https://github.com/CodingGenius0001/pulse/releases/latest/download/pulse-debug.apk
+
+            Last updated from commit `${{ github.sha }}` (build #${{ github.run_number }}).
+          files: release-staging/pulse-debug.apk
+          prerelease: true
+          make_latest: "true"
