@@ -68,9 +68,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +87,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
+import com.pulse.music.data.SongMetadata
 import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.player.PlayerViewModel
 import com.pulse.music.ui.components.AlbumArt
@@ -107,6 +112,7 @@ fun NowPlayingScreen(
     val song = state.currentSong
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val app = remember { PulseApplication.get() }
 
     BackHandler(enabled = true) { onBack() }
 
@@ -114,6 +120,19 @@ fun NowPlayingScreen(
         LaunchedEffect(Unit) { onBack() }
         return
     }
+
+    val metadata by produceState<SongMetadata?>(initialValue = null, song.id) {
+        app.metadataRepository.observe(song.id).collect { value = it }
+    }
+    LaunchedEffect(song.id) {
+        scope.launch(Dispatchers.IO) {
+            app.metadataRepository.resolve(song)
+        }
+    }
+
+    val displayTitle = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title
+    val displayArtist = metadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: song.artist
+    val displayAlbum = metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: song.album
 
     var overflowOpen by remember { mutableStateOf(false) }
     var lyricsOpen by remember { mutableStateOf(false) }
@@ -147,7 +166,7 @@ fun NowPlayingScreen(
                     style = MaterialTheme.typography.labelSmall,
                 )
                 Text(
-                    text = song.album,
+                    text = displayAlbum,
                     color = MaterialTheme.colorScheme.onBackground,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
@@ -184,14 +203,14 @@ fun NowPlayingScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = song.title,
+                        text = displayTitle,
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.headlineLarge,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "${song.artist} · ${song.album}",
+                        text = "$displayArtist · $displayAlbum",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
@@ -217,7 +236,8 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(18.dp))
 
-            PillScrubber(
+            WaveformScrubber(
+                waveSeed = song.id.toInt() xor displayTitle.hashCode(),
                 isPlaying = state.isPlaying,
                 positionMs = state.positionMs,
                 durationMs = state.durationMs,
@@ -353,7 +373,13 @@ fun NowPlayingScreen(
                             text = { Text("Share") },
                             onClick = {
                                 overflowOpen = false
-                                shareSong(scope, context, song)
+                                shareSong(
+                                    scope = scope,
+                                    context = context,
+                                    song = song,
+                                    displayTitle = displayTitle,
+                                    displayArtist = displayArtist,
+                                )
                             },
                             leadingIcon = {
                                 Icon(
@@ -387,15 +413,21 @@ fun NowPlayingScreen(
  * the coroutine tied to the visible Now Playing surface.
  * The disk read is a single primary-key Room lookup.
  */
-private fun shareSong(scope: CoroutineScope, context: android.content.Context, song: Song) {
+private fun shareSong(
+    scope: CoroutineScope,
+    context: android.content.Context,
+    song: Song,
+    displayTitle: String,
+    displayArtist: String,
+) {
     val app = PulseApplication.get()
     scope.launch(Dispatchers.IO) {
         val cached = app.metadataRepository.getCached(song.id)
         val url = cached?.geniusUrl
         val shareText = if (url != null) {
-            "${song.title} — ${song.artist}\n$url"
+            "$displayTitle - $displayArtist\n$url"
         } else {
-            "${song.title} — ${song.artist}"
+            "$displayTitle - $displayArtist"
         }
         withContext(Dispatchers.Main) {
             val intent = Intent(Intent.ACTION_SEND).apply {
@@ -408,7 +440,8 @@ private fun shareSong(scope: CoroutineScope, context: android.content.Context, s
 }
 
 @Composable
-private fun PillScrubber(
+private fun WaveformScrubber(
+    waveSeed: Int,
     isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -420,8 +453,36 @@ private fun PillScrubber(
     var dragProgress by remember { mutableFloatStateOf(-1f) }
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
-    val activeColor = if (isPlaying) PulseTheme.colors.accentPink else MaterialTheme.colorScheme.onBackground
-    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f)
+    val activeColor = PulseTheme.colors.accentPink.copy(alpha = 0.92f)
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
+
+    val waveParts = remember(waveSeed) {
+        val random = kotlin.random.Random(waveSeed)
+        List(5) {
+            WavePart(
+                cycles = random.nextDouble(0.65, 2.4).toFloat(),
+                amplitude = random.nextDouble(0.18, 1.0).toFloat(),
+                speed = random.nextDouble(0.45, 1.5).toFloat(),
+                phase = random.nextDouble(0.0, kotlin.math.PI * 2).toFloat(),
+            )
+        }
+    }
+
+    val transition = rememberInfiniteTransition(label = "waveform")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * kotlin.math.PI.toFloat()),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "wavePhase",
+    )
+    val amplitude by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.18f,
+        animationSpec = tween(durationMillis = 450),
+        label = "waveAmplitude",
+    )
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
@@ -462,31 +523,57 @@ private fun PillScrubber(
                     .height(48.dp),
             ) {
                 val w = size.width
-                val h = size.height
-                val centerY = h / 2f
+                val centerY = size.height / 2f
                 val trackHeight = 4.dp.toPx()
-                val thumbWidth = 7.dp.toPx()
-                val thumbHeight = 32.dp.toPx()
+                val thumbWidth = 8.dp.toPx()
+                val thumbHeight = 34.dp.toPx()
                 val thumbX = (w * shownProgress).coerceIn(thumbWidth / 2f, w - thumbWidth / 2f)
-                val trackRadius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f, trackHeight / 2f)
+                val trackRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
 
                 drawRoundRect(
                     color = inactiveColor,
                     topLeft = Offset(0f, centerY - trackHeight / 2f),
-                    size = androidx.compose.ui.geometry.Size(w, trackHeight),
+                    size = Size(w, trackHeight),
                     cornerRadius = trackRadius,
                 )
-                drawRoundRect(
-                    color = activeColor,
-                    topLeft = Offset(0f, centerY - trackHeight / 2f),
-                    size = androidx.compose.ui.geometry.Size(thumbX, trackHeight),
-                    cornerRadius = trackRadius,
-                )
+
+                if (thumbX > 2f) {
+                    val path = Path()
+                    val maxAmp = 7.5.dp.toPx() * amplitude
+                    val effectiveWidth = thumbX.coerceAtLeast(1f)
+                    val step = 3f
+                    var x = 0f
+                    path.moveTo(0f, centerY)
+                    while (x <= effectiveWidth) {
+                        val t = x / effectiveWidth
+                        val envelope = 0.55f + 0.45f * kotlin.math.sin(t * kotlin.math.PI.toFloat())
+                        val yOffset = waveParts.sumOf { part ->
+                            val angle =
+                                (t * part.cycles * 2f * kotlin.math.PI.toFloat()) +
+                                    (phase * part.speed) +
+                                    part.phase
+                            (kotlin.math.sin(angle) * part.amplitude).toDouble()
+                        }.toFloat() / waveParts.size
+                        val y = centerY + (yOffset * maxAmp * envelope)
+                        path.lineTo(x, y)
+                        x += step
+                    }
+                    drawPath(
+                        path = path,
+                        color = activeColor,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 3.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                }
+
                 drawRoundRect(
                     color = activeColor,
                     topLeft = Offset(thumbX - thumbWidth / 2f, centerY - thumbHeight / 2f),
-                    size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(thumbWidth / 2f, thumbWidth / 2f),
+                    size = Size(thumbWidth, thumbHeight),
+                    cornerRadius = CornerRadius(thumbWidth / 2f, thumbWidth / 2f),
                 )
             }
         }
@@ -513,6 +600,14 @@ private fun PillScrubber(
     }
 }
 
+private data class WavePart(
+    val cycles: Float,
+    val amplitude: Float,
+    val speed: Float,
+    val phase: Float,
+)
+
+/*
 /**
  * Combined wave + scrubber. Continuous flowing wave on the played side,
  * thin track on the unplayed side, circular knob at the playhead.
@@ -693,6 +788,7 @@ private fun WavyScrubber(
     }
 }
 
+*/
 @Composable
 private fun BottomAction(
     label: String,

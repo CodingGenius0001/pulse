@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
@@ -27,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +38,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pulse.music.PulseApplication
+import com.pulse.music.data.Song
+import com.pulse.music.data.SongMetadata
 import com.pulse.music.player.PlayerViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.CircleButton
@@ -102,9 +108,32 @@ fun QueueScreen(
             return
         }
 
+        val currentSong = state.currentSong
+        val currentMetadata by produceState<SongMetadata?>(initialValue = null, currentSong?.id) {
+            if (currentSong == null) {
+                value = null
+            } else {
+                PulseApplication.get()
+                    .metadataRepository
+                    .observe(currentSong.id)
+                    .collect { value = it }
+            }
+        }
+
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
         ) {
+            if (currentSong != null) {
+                item {
+                    QueueReturnCard(
+                        song = currentSong,
+                        title = currentMetadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: currentSong.title,
+                        artist = currentMetadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: currentSong.artist,
+                        onClick = onBack,
+                    )
+                }
+            }
+
             items(state.queue.size) { index ->
                 val song = state.queue[index]
                 val isCurrent = index == state.currentIndex
@@ -135,6 +164,64 @@ fun QueueScreen(
 }
 
 // items() above is the standard LazyListScope.items(count, itemContent) extension.
+
+@Composable
+private fun QueueReturnCard(
+    song: Song,
+    title: String,
+    artist: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(PulseTheme.colors.pillSurfaceStrong)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AlbumArt(
+            song = song,
+            cornerRadius = 10.dp,
+            modifier = Modifier.size(52.dp),
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Now playing",
+                color = PulseTheme.colors.accentViolet,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+            )
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                text = artist,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Icon(
+            imageVector = Icons.Filled.Headphones,
+            contentDescription = "Return to now playing",
+            tint = PulseTheme.colors.accentViolet,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
 
 @Composable
 private fun QueueRow(

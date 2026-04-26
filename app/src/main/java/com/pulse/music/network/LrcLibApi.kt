@@ -18,6 +18,16 @@ import kotlin.math.roundToLong
  */
 object LrcLibApi {
 
+    data class TrackInfo(
+        val title: String,
+        val artist: String?,
+        val album: String?,
+        val durationSeconds: Long?,
+        val plainLyrics: String?,
+        val syncedLyrics: String?,
+        val instrumental: Boolean,
+    )
+
     private const val BASE_URL = "https://lrclib.net/api"
     private const val USER_AGENT = "Pulse-Android/0.5.1 (github.com/CodingGenius0001/pulse)"
 
@@ -82,6 +92,43 @@ object LrcLibApi {
         )
     }
 
+    suspend fun findBestTrackInfo(
+        trackName: String,
+        artistName: String,
+        albumName: String,
+        durationSeconds: Long,
+    ): TrackInfo? = withContext(Dispatchers.IO) {
+        val cleanTrack = trackName.cleanForLyricsQuery()
+        if (cleanTrack.isBlank()) return@withContext null
+
+        val knownArtist = artistName.isKnownArtist()
+        if (knownArtist) {
+            exactGetInfo(cleanTrack, artistName, albumName, durationSeconds)?.let { return@withContext it }
+        }
+
+        searchTrackInfo(
+            trackName = cleanTrack,
+            artistName = artistName.takeIf { knownArtist },
+            durationSeconds = durationSeconds,
+        )?.let { return@withContext it }
+
+        if (knownArtist) {
+            queryTrackInfo(
+                query = "$cleanTrack ${artistName.cleanForLyricsQuery()}",
+                expectedTrack = cleanTrack,
+                expectedArtist = artistName,
+                durationSeconds = durationSeconds,
+            )?.let { return@withContext it }
+        }
+
+        queryTrackInfo(
+            query = cleanTrack,
+            expectedTrack = cleanTrack,
+            expectedArtist = artistName.takeIf { knownArtist },
+            durationSeconds = durationSeconds,
+        )
+    }
+
     private fun LrcLibResponse.Found.hasContent(): Boolean =
         instrumental || !syncedLyrics.isNullOrBlank() || !plainLyrics.isNullOrBlank()
 
@@ -120,6 +167,44 @@ object LrcLibApi {
             }
         } catch (e: Exception) {
             LrcLibResponse.Error
+        }
+    }
+
+    private suspend fun exactGetInfo(
+        trackName: String,
+        artistName: String,
+        albumName: String,
+        durationSeconds: Long,
+    ): TrackInfo? {
+        val builder = "$BASE_URL/get".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("track_name", trackName)
+            .addQueryParameter("artist_name", artistName)
+            .addQueryParameter("duration", durationSeconds.toString())
+
+        albumName
+            .takeIf { it.isKnownAlbum() }
+            ?.let { builder.addQueryParameter("album_name", it) }
+
+        val request = Request.Builder()
+            .url(builder.build())
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        return try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                when {
+                    response.code == 404 -> null
+                    !response.isSuccessful -> null
+                    else -> {
+                        val body = response.body?.string() ?: return@use null
+                        json.decodeFromString(GetResponse.serializer(), body).toTrackInfo()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -168,6 +253,46 @@ object LrcLibApi {
         return runSearchRequest(request, expectedTrack, expectedArtist, durationSeconds)
     }
 
+    private suspend fun searchTrackInfo(
+        trackName: String,
+        artistName: String?,
+        durationSeconds: Long,
+    ): TrackInfo? {
+        val builder = "$BASE_URL/search".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("track_name", trackName)
+
+        artistName?.let { builder.addQueryParameter("artist_name", it) }
+
+        val request = Request.Builder()
+            .url(builder.build())
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        return runSearchInfoRequest(request, trackName, artistName, durationSeconds)
+    }
+
+    private suspend fun queryTrackInfo(
+        query: String,
+        expectedTrack: String,
+        expectedArtist: String?,
+        durationSeconds: Long,
+    ): TrackInfo? {
+        val request = Request.Builder()
+            .url(
+                "$BASE_URL/search".toHttpUrl()
+                    .newBuilder()
+                    .addQueryParameter("query", query)
+                    .build()
+            )
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        return runSearchInfoRequest(request, expectedTrack, expectedArtist, durationSeconds)
+    }
+
     private suspend fun runSearchRequest(
         request: Request,
         expectedTrack: String,
@@ -188,6 +313,28 @@ object LrcLibApi {
             }
         } catch (e: Exception) {
             LrcLibResponse.Error
+        }
+    }
+
+    private suspend fun runSearchInfoRequest(
+        request: Request,
+        expectedTrack: String,
+        expectedArtist: String?,
+        durationSeconds: Long,
+    ): TrackInfo? {
+        return try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string() ?: return@use null
+                val candidates = json.decodeFromString(
+                    ListSerializer(SearchResultDto.serializer()),
+                    body,
+                )
+                pickBestCandidate(candidates, expectedTrack, expectedArtist, durationSeconds)
+                    ?.toTrackInfo()
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -272,8 +419,30 @@ object LrcLibApi {
             instrumental = instrumental,
         )
 
+    private fun GetResponse.toTrackInfo(): TrackInfo =
+        TrackInfo(
+            title = (trackName ?: name).orEmpty(),
+            artist = artistName,
+            album = albumName,
+            durationSeconds = duration?.roundToLong(),
+            plainLyrics = plainLyrics?.takeIf { it.isNotBlank() },
+            syncedLyrics = syncedLyrics?.takeIf { it.isNotBlank() },
+            instrumental = instrumental,
+        )
+
     private fun SearchResultDto.toFound(): LrcLibResponse.Found =
         LrcLibResponse.Found(
+            plainLyrics = plainLyrics?.takeIf { it.isNotBlank() },
+            syncedLyrics = syncedLyrics?.takeIf { it.isNotBlank() },
+            instrumental = instrumental,
+        )
+
+    private fun SearchResultDto.toTrackInfo(): TrackInfo =
+        TrackInfo(
+            title = (trackName ?: name).orEmpty(),
+            artist = artistName,
+            album = albumName,
+            durationSeconds = duration.roundToLong(),
             plainLyrics = plainLyrics?.takeIf { it.isNotBlank() },
             syncedLyrics = syncedLyrics?.takeIf { it.isNotBlank() },
             instrumental = instrumental,

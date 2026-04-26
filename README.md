@@ -81,6 +81,13 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.2
+
+- Now Playing now renders resolved metadata, so LRCLIB/Genius-enriched title and artist fields actually show up on the player screen.
+- Metadata enrichment now falls back through LRCLIB track info, then retries Genius with the recovered artist when local tags are weak.
+- The playback scrubber is back to a flowing waveform sitting on the bar, with irregular seeded motion instead of the flat accent-fill variant from v0.5.1.
+- Queue now has a dedicated Now Playing return card at the top so you can jump back to the active song quickly.
+
 ## What's new in v0.5.1
 
 - Album art now observes cached Genius metadata and appears as soon as enrichment finishes.
@@ -276,6 +283,12 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.2
+- Now Playing uses resolved metadata instead of raw file tags
+- LRCLIB-assisted metadata fallback and Genius retry for weak artist tags
+- Irregular animated waveform scrubber on the seek bar
+- Queue-level Now Playing return card
 
 ### v0.5.1
 - Live album-art refresh after metadata enrichment
