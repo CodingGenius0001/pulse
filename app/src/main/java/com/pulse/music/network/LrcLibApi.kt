@@ -68,11 +68,23 @@ object LrcLibApi {
         }
 
         val exact = exactGet(trackName, artistName, albumName, durationSeconds)
-        if (exact !is LrcLibResponse.NotFound) return@withContext exact
 
-        // Exact match failed — try the fuzzy /search and pick the closest by duration.
+        // BUG FIX (v0.5): /api/get sometimes returns 200 with both lyric
+        // fields null (and not flagged as instrumental). My old code treated
+        // that as a "Found but empty" result, which cascaded up as NotFound
+        // without ever trying /search. Now we explicitly check that we got
+        // SOMETHING usable; if not, fall through to /search like a 404.
+        if (exact is LrcLibResponse.Found && exact.hasContent()) {
+            return@withContext exact
+        }
+        // Also fall through on Error — better to retry against /search than
+        // give up because of a transient hiccup on /get.
         searchFallback(trackName, artistName, durationSeconds)
     }
+
+    /** True if we actually have lyrics or a confirmed instrumental flag. */
+    private fun LrcLibResponse.Found.hasContent(): Boolean =
+        instrumental || !syncedLyrics.isNullOrBlank() || !plainLyrics.isNullOrBlank()
 
     /**
      * Hit /api/get with all four fields. Returns Found, NotFound (on 404), or Error.
@@ -153,17 +165,22 @@ object LrcLibApi {
                 )
                 if (candidates.isEmpty()) return@use LrcLibResponse.NotFound
 
-                // Pick the candidate whose duration is closest to ours.
-                // 5-second tolerance: cuts of the same track might differ by a
-                // beat or two; songs with the same title but very different
-                // lengths are different songs.
-                val best = candidates.minByOrNull { c ->
-                    kotlin.math.abs(c.duration - durationSeconds)
-                } ?: return@use LrcLibResponse.NotFound
-
-                if (kotlin.math.abs(best.duration - durationSeconds) > 5) {
-                    return@use LrcLibResponse.NotFound
+                // Strategy:
+                //  1. Prefer candidates within 10s of our duration AND that
+                //     have actual lyric content (synced or plain).
+                //  2. If none match, try ANY candidate within 10s.
+                //  3. If none match at all, give up (NotFound) — we don't want
+                //     to grab a 5-minute remix when the user has the 30-second clip.
+                val withContent = candidates.filter { c ->
+                    kotlin.math.abs(c.duration - durationSeconds) <= 10 &&
+                        (!c.syncedLyrics.isNullOrBlank() || !c.plainLyrics.isNullOrBlank())
                 }
+                val best = withContent
+                    .minByOrNull { kotlin.math.abs(it.duration - durationSeconds) }
+                    ?: candidates
+                        .filter { kotlin.math.abs(it.duration - durationSeconds) <= 10 }
+                        .minByOrNull { kotlin.math.abs(it.duration - durationSeconds) }
+                    ?: return@use LrcLibResponse.NotFound
 
                 LrcLibResponse.Found(
                     plainLyrics = best.plainLyrics?.takeIf { it.isNotBlank() },

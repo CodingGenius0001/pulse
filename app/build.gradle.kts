@@ -25,6 +25,25 @@ val geniusToken: String = run {
         ?: ""
 }
 
+/**
+ * Build number used by the in-app updater to compare versions. Locally this
+ * is just 0 (no GitHub Actions context). On CI it's set via the
+ * GITHUB_RUN_NUMBER env var so the APK knows what build it is, and the
+ * updater can compare to the latest release's build number.
+ */
+val ciBuildNumber: Int = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toIntOrNull() ?: 0
+
+/**
+ * Path to a debug keystore we own (instead of the random one Gradle generates
+ * per machine). When it exists, all debug builds are signed with it — meaning
+ * builds installed by users can be upgraded by future builds without needing
+ * to uninstall first.
+ *
+ * On CI the keystore file is created at build time from a base64 secret;
+ * locally you can drop your own at app/keystore/debug.jks.
+ */
+val debugKeystoreFile = file("keystore/debug.jks")
+
 android {
     namespace = "com.pulse.music"
     compileSdk = 34
@@ -33,15 +52,36 @@ android {
         applicationId = "com.pulse.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.4.2"
+        versionCode = 7
+        versionName = "0.5.0"
 
         vectorDrawables {
             useSupportLibrary = true
         }
 
-        // Expose the Genius token to Kotlin via BuildConfig.GENIUS_ACCESS_TOKEN
+        // Exposed to Kotlin via BuildConfig.* — see network/GeniusApi.kt and
+        // update/UpdateRepository.kt for consumers.
         buildConfigField("String", "GENIUS_ACCESS_TOKEN", "\"$geniusToken\"")
+        buildConfigField("int", "BUILD_NUMBER", "$ciBuildNumber")
+        buildConfigField("String", "GITHUB_REPO", "\"CodingGenius0001/pulse\"")
+        buildConfigField("String", "RELEASE_TAG", "\"latest\"")
+    }
+
+    signingConfigs {
+        // We define a custom config only when the keystore actually exists.
+        // First-time local builds (no keystore) fall through to Gradle's
+        // auto-generated debug keystore, which works fine — just doesn't
+        // give the cross-build install compatibility we want for CI.
+        if (debugKeystoreFile.exists()) {
+            create("pulseDebug") {
+                storeFile = debugKeystoreFile
+                storePassword = System.getenv("DEBUG_KEYSTORE_PASSWORD")
+                    ?: "pulseDebugStorePass"
+                keyAlias = System.getenv("DEBUG_KEY_ALIAS") ?: "pulseDebugKey"
+                keyPassword = System.getenv("DEBUG_KEY_PASSWORD")
+                    ?: "pulseDebugKeyPass"
+            }
+        }
     }
 
     buildTypes {
@@ -51,6 +91,10 @@ android {
         }
         debug {
             isDebuggable = true
+            // Apply the custom debug signing config when available.
+            if (debugKeystoreFile.exists()) {
+                signingConfig = signingConfigs.getByName("pulseDebug")
+            }
         }
     }
 

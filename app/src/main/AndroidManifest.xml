@@ -23,6 +23,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Required so the app can request Android to install an updated APK
+         (the in-app updater).  Granting this permission still requires the
+         user to enable "Install unknown apps" for Pulse from system Settings,
+         but without REQUEST_INSTALL_PACKAGES the OS won't even surface the
+         option. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".PulseApplication"
         android:allowBackup="true"
@@ -58,6 +65,19 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- FileProvider for safely sharing the downloaded APK URI with
+             PackageInstaller. The grant_uri_permissions=true is required
+             so the install activity can read our cache file. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
 
     </application>
 

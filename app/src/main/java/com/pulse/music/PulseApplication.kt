@@ -7,6 +7,7 @@ import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.PulseDatabase
 import com.pulse.music.data.UserPreferences
 import com.pulse.music.scanner.MusicScanner
+import com.pulse.music.update.UpdateRepository
 
 /**
  * Application class. Holds singleton instances of the database and repositories
@@ -27,6 +28,8 @@ class PulseApplication : Application() {
     val lyricsRepository: LyricsRepository by lazy {
         LyricsRepository(database.lyricsDao())
     }
+
+    val updateRepository: UpdateRepository by lazy { UpdateRepository(this) }
 
     override fun onCreate() {
         super.onCreate()

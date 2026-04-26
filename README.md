@@ -9,40 +9,100 @@ enrichment so your library looks pretty even when your MP3s are missing tags.
 
 ---
 
-## Setup before first build (v0.4)
+## Setup before first build (v0.5)
 
-This release adds online metadata + lyrics. Both work without configuration —
-the app just falls back to gradient-tile fallbacks and "lyrics not found"
-when you don't set up the Genius token.
+You need three things before the first CI run will produce installable APKs that can self-update:
 
-### Genius API token (recommended)
+### 1. Genius API token (recommended)
 
-1. Go to [genius.com/api-clients](https://genius.com/api-clients) and click
-   **New API Client**
-2. Fill in the form (any URL is fine for local-only use). Click **Save**
-3. On the resulting page, click **Generate Access Token** and copy it
-4. Open `local.properties` in the repo root (create the file if it doesn't
-   exist) and add:
-   ```
-   GENIUS_ACCESS_TOKEN=YOUR_TOKEN_HERE
-   ```
-5. **Don't commit it.** `local.properties` is already gitignored. If you
-   accidentally push your token, Genius will auto-revoke it within hours.
-6. For GitHub Actions: in your repo go to **Settings → Secrets and variables
-   → Actions → New repository secret**. Name: `GENIUS_ACCESS_TOKEN`. Value:
-   your token. The CI workflow reads it automatically.
+Pulse uses the Genius API for cover art + album metadata. Without a token everything still works — songs play, library scans — but tracks won't get richer metadata fetched online.
 
-If you skip this step, Pulse still works — every song just shows gradient
-fallback art and "no metadata" states. Search and playback are unaffected.
+**Get a token:**
+1. Go to https://genius.com/api-clients
+2. Sign in (or create a free Genius account)
+3. Click "New API Client"
+4. Fill in: App name "Pulse Personal", App website URL "https://github.com/CodingGenius0001/pulse"
+5. Click "Generate Access Token"
+6. Copy the **Client Access Token** (NOT the Client ID or Client Secret)
 
-### Lyrics (LRCLIB)
+**For local builds:** create `local.properties` in the repo root with:
+```
+GENIUS_ACCESS_TOKEN=your_token_here
+```
+This file is gitignored, so the token never gets committed.
 
-Nothing to do — Pulse uses [LRCLIB](https://lrclib.net), a free community
-lyrics database, with no token required. The Lyrics button in Now Playing
-fetches synced lyrics on first open and caches them in Room. Tracks LRCLIB
-doesn't have show "we didn't find lyrics for this one :(".
+**For CI builds:** add it as a GitHub repo secret:
+- GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+- Name: `GENIUS_ACCESS_TOKEN`
+- Value: your token
 
----
+### 2. Debug keystore (required for the in-app updater)
+
+Every CI build needs to be signed with the **same** keystore so users can update from one build to the next without uninstalling first. (Android refuses to install an "update" with a different signing key — which is exactly what would happen if Gradle generated a fresh debug keystore each run.)
+
+This is a **one-time, ~3-minute** setup. After this you'll never sideload manually again.
+
+**Step 1 — Generate the keystore on your PC.** Open a terminal/Command Prompt anywhere convenient and run:
+
+```
+keytool -genkey -v -keystore debug.jks -keyalg RSA -keysize 2048 -validity 10000 -alias pulseDebugKey -storepass pulseDebugStorePass -keypass pulseDebugKeyPass -dname "CN=Pulse Debug, O=CodingGenius0001, C=US"
+```
+
+This creates `debug.jks` in the current folder. The passwords above (`pulseDebugStorePass`, `pulseDebugKeyPass`) are deliberately public defaults — debug keystores aren't security boundaries, they're identity tokens. If you'd rather use stronger passwords, swap them in here AND in step 4 below.
+
+**Step 2 — Place it locally.** Copy `debug.jks` into `app/keystore/debug.jks` in your local repo. The `app/keystore/` directory is gitignored — the file stays on your machine only.
+
+**Step 3 — Base64-encode it for CI.**
+
+On Windows (Command Prompt):
+```
+certutil -encode debug.jks debug.jks.b64
+```
+(This wraps the output with `-----BEGIN/END CERTIFICATE-----`. Open `debug.jks.b64` in a text editor and remove those lines — only the base64 content should remain.)
+
+On Mac/Linux:
+```
+base64 -i debug.jks > debug.jks.b64
+```
+
+**Step 4 — Add four GitHub secrets** at the same place as the Genius token:
+| Secret name | Value |
+|---|---|
+| `DEBUG_KEYSTORE_BASE64` | contents of `debug.jks.b64` (the long base64 string) |
+| `DEBUG_KEYSTORE_PASSWORD` | `pulseDebugStorePass` (or whatever you used) |
+| `DEBUG_KEY_ALIAS` | `pulseDebugKey` |
+| `DEBUG_KEY_PASSWORD` | `pulseDebugKeyPass` (or whatever you used) |
+
+**Step 5 — Delete the temp files.** `debug.jks.b64` you can delete now (it's only the transport medium). Keep `debug.jks` in `app/keystore/` for local builds.
+
+**That's it.** From the next push onward, every CI build is signed with the same key. The first build with the keystore in place is the LAST manual install you'll do — every subsequent push, the in-app updater will fetch and install the new build.
+
+### 3. Lyrics (LRCLIB)
+
+LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
+
+## What's new in v0.5.0
+
+### Major
+
+- **In-app updater.** Settings → Updates → "Check for updates" → if a newer build exists on GitHub, tap Download → tap Install → Android takes over. No more manual sideload. A small banner also shows on the Home screen when an update is available (only after you've manually checked — Pulse never phones home automatically).
+- **Continuous flowing wave on the playback scrubber.** Two summed sines for organic variation, scrolls leftward while playing, smoothly flattens to a line on pause. Replaces the bar-chart version from v0.4.2.
+- **Circular knob** at the playhead instead of the vertical pill — matches the reference wave style.
+- **Fixed debug keystore** in CI (see Setup above) means users can update without uninstalling first.
+- **Build number visible in app.** Settings → About now shows `Pulse · v0.5.0 (build 7)` so you always know exactly what you're running.
+
+### Minor
+
+- **LRCLIB cascade fixed.** The /api/get endpoint sometimes returns a 200 with null lyrics for tracks LRCLIB has but doesn't have lyrics for in your locale's exact match. Now correctly cascades to /search.
+- **LRCLIB duration tolerance** loosened from 5s to 10s — catches more edits/remasters of the same song.
+- **Search prefers candidates with content** before falling back to anything within tolerance.
+- Auto-publishing the floating `latest` release with a `Build #N` header so the in-app updater can parse the version.
+
+### Honest limitations carried over
+
+- Genius matching still requires an artist tag. Tracks tagged "Unknown artist" get the gradient + music-note fallback, by design — see the v0.4 notes for why.
+- Same for LRCLIB lyrics — needs a real artist on the file.
+- Tag your MP3s properly (Mp3Tag is free) for full metadata coverage.
 
 ## What's new in v0.4.0
 
@@ -208,6 +268,14 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.0
+- In-app updater (manual check, Settings + Home banner)
+- Continuous flowing wave on scrubber, circular knob playhead
+- Fixed debug keystore for cross-build install compatibility
+- Build number visible in Settings
+- LRCLIB cascade fix (null-lyrics 200 now triggers /search fallback)
+- Auto-publish releases workflow with Build #N parsing
 
 ### v0.4.0
 - Genius metadata (search + song details, cached in Room)

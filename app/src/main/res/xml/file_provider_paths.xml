@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!--
+        Paths exposed by com.pulse.music.fileprovider. Used to share the
+        downloaded APK URI with PackageInstaller when the user taps Install.
+
+        cache-path "updates" maps to <app_cache>/updates/, where the updater
+        writes pulse-debug.apk before triggering install.
+    -->
+    <cache-path name="updates" path="updates/" />
+</paths>

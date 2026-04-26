@@ -55,14 +55,47 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # Decode the persistent debug keystore from a base64 secret so every CI
+      # build is signed with the same key. This lets users update from one
+      # build to the next without uninstalling first (Android refuses installs
+      # that change signing keys, even for "debug" builds).
+      #
+      # Required secrets — see README for setup:
+      #   DEBUG_KEYSTORE_BASE64    base64 of debug.jks
+      #   DEBUG_KEYSTORE_PASSWORD  store password
+      #   DEBUG_KEY_ALIAS          alias name (default 'pulseDebugKey')
+      #   DEBUG_KEY_PASSWORD       key password
+      #
+      # If DEBUG_KEYSTORE_BASE64 isn't set yet, this step writes nothing and
+      # Gradle falls back to its auto-generated debug keystore (= old behaviour,
+      # users still need to uninstall before installing new builds).
+      - name: Decode debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            mkdir -p app/keystore
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > app/keystore/debug.jks
+            echo "✓ Debug keystore restored from secret"
+          else
+            echo "⚠ DEBUG_KEYSTORE_BASE64 not set — using Gradle's per-run debug keystore"
+            echo "  In-app updates will require manual uninstall until this is configured."
+          fi
+
       - name: Build debug APK
         env:
-          # Read from a repo secret. Set it in: GitHub repo → Settings →
+          # Read from repo secrets. Set in: GitHub repo → Settings →
           # Secrets and variables → Actions → New repository secret.
-          # Name: GENIUS_ACCESS_TOKEN, value: your token from genius.com/api-clients.
-          # If the secret isn't set, the build still succeeds — the app just
-          # won't have online metadata fetching enabled (everything else works).
           GENIUS_ACCESS_TOKEN: ${{ secrets.GENIUS_ACCESS_TOKEN }}
+          DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+          DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+          # GITHUB_RUN_NUMBER is set by the runner automatically, but we
+          # surface it explicitly so it's visible in the build log and so
+          # any future restructuring doesn't accidentally drop it. The
+          # Gradle script reads this and bakes it into BuildConfig.BUILD_NUMBER
+          # — the in-app updater compares against that to detect new builds.
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       # Rename so the file in the Release artifacts list is more recognizable
@@ -129,7 +162,7 @@ jobs:
           tag_name: latest
           name: "Latest debug build"
           body: |
-            **This release auto-updates with every push to main.**
+            **Build #${{ github.run_number }}** — auto-published from main.
 
             Permanent download link (always newest):
             https://github.com/CodingGenius0001/pulse/releases/latest/download/pulse-debug.apk

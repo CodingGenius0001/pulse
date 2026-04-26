@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -48,6 +49,8 @@ import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.AlbumMosaic
 import com.pulse.music.ui.components.BottomBarContentPadding
 import com.pulse.music.ui.theme.PulseTheme
+import com.pulse.music.update.UpdateState
+import com.pulse.music.update.UpdateViewModel
 import com.pulse.music.util.gradientFor
 
 @Composable
@@ -74,6 +77,11 @@ fun ForYouScreen(
         ),
     ) {
         item { AppBar(userName = userName, onOpenSettings = onOpenSettings) }
+
+        // Conditional update banner — only renders when the user has run a
+        // manual check that returned an Available state. Tap → Settings,
+        // where they can download.
+        item { UpdateBanner(onOpenSettings = onOpenSettings) }
 
         item {
             Spacer(Modifier.height(4.dp))
@@ -465,6 +473,65 @@ private fun EmptyState(
                 color = MaterialTheme.colorScheme.background,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+/**
+ * Compact "Update available" banner for the Home screen. Renders only when
+ * the shared [UpdateViewModel] state is Available — i.e. the user has
+ * already pressed "Check for updates" in Settings and got a hit. Tapping
+ * navigates them back to Settings to download/install.
+ *
+ * We don't auto-trigger the check on Home — the user explicitly chose
+ * manual-only updates. The banner is purely a passive surface: if state is
+ * Available because they checked earlier in this session, here's a shortcut.
+ * Returns nothing for any other state (Idle, Checking, UpToDate, Downloading,
+ * Ready, Error).
+ */
+@Composable
+private fun UpdateBanner(onOpenSettings: () -> Unit) {
+    val vm: UpdateViewModel = viewModel(factory = UpdateViewModel.Factory)
+    val state by vm.state.collectAsStateWithLifecycle()
+    val info = (state as? UpdateState.Available)?.info ?: return
+
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(PulseTheme.colors.pillSurface)
+            .clickable(onClick = onOpenSettings)
+            .padding(16.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.SystemUpdate,
+                contentDescription = null,
+                tint = PulseTheme.colors.accentViolet,
+                modifier = Modifier.size(22.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Update available",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = "Build #${info.buildNumber} ready to download",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Text(
+                text = "Open",
+                color = PulseTheme.colors.accentViolet,
+                style = MaterialTheme.typography.labelLarge,
             )
         }
     }

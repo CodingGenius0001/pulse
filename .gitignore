@@ -30,3 +30,9 @@ Thumbs.db
 
 # Firebase (add your own)
 google-services.json
+
+# Signing keys — NEVER commit these. CI restores debug.jks from a base64
+# secret on each run; locally you generate your own in app/keystore/.
+app/keystore/
+*.jks
+*.keystore

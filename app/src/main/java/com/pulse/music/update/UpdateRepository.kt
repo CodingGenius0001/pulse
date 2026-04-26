@@ -1,0 +1,182 @@
+package com.pulse.music.update
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
+import com.pulse.music.BuildConfig
+import com.pulse.music.network.HttpClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import okhttp3.Request
+import java.io.File
+
+/**
+ * Top-level state of the in-app updater. Used by Settings + the Home banner
+ * to drive their UI.
+ */
+sealed interface UpdateState {
+    /** No check has been run yet (this session). */
+    data object Idle : UpdateState
+
+    /** A network check is in progress. */
+    data object Checking : UpdateState
+
+    /** Latest release is the one we're already running. */
+    data object UpToDate : UpdateState
+
+    /** A newer build is available — show details, allow Download. */
+    data class Available(val info: UpdateInfo) : UpdateState
+
+    /** APK is downloading. [progress] is 0.0–1.0. */
+    data class Downloading(val info: UpdateInfo, val progress: Float) : UpdateState
+
+    /** Download finished; APK is at [file] and ready to hand to PackageInstaller. */
+    data class Ready(val info: UpdateInfo, val file: File) : UpdateState
+
+    /** Something went wrong. */
+    data class Error(val message: String) : UpdateState
+}
+
+/**
+ * Coordinates the update lifecycle. Pure logic + IO; the UI subscribes to
+ * the [stateFlow]-style returns.
+ *
+ * Why we don't keep an internal MutableStateFlow: the UI flow is short-lived
+ * (the user opens Settings, taps "Check", sees a result) and the
+ * download-with-progress is a one-shot per tap. Modeling each operation as
+ * its own Flow is simpler than fighting state-machine reentrance.
+ */
+class UpdateRepository(private val context: Context) {
+
+    /**
+     * Hits the GitHub API, compares the release's build number to the one
+     * baked into this APK at build time, and emits the resolved state.
+     *
+     * Emits [UpdateState.Checking] first, then exactly one terminal state.
+     */
+    fun check(): Flow<UpdateState> = flow {
+        emit(UpdateState.Checking)
+
+        val info = GitHubReleasesApi.fetchTaggedRelease(
+            repo = BuildConfig.GITHUB_REPO,
+            tag = BuildConfig.RELEASE_TAG,
+        )
+
+        if (info == null) {
+            emit(UpdateState.Error("Couldn't reach GitHub. Check your connection and try again."))
+            return@flow
+        }
+
+        // Compare against the build number baked into THIS APK. If the remote
+        // build is newer, offer the update; otherwise we're up-to-date.
+        // Build number 0 means "unknown" (e.g. local debug build with no CI
+        // context) — we treat that as always-allow-update so people running
+        // hand-built debug APKs can still upgrade to the canonical CI build.
+        val installedBuild = BuildConfig.BUILD_NUMBER
+        when {
+            installedBuild == 0 -> emit(UpdateState.Available(info))
+            info.buildNumber > installedBuild -> emit(UpdateState.Available(info))
+            else -> emit(UpdateState.UpToDate)
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * Downloads the APK to <cache>/updates/pulse-debug.apk, emitting progress
+     * along the way. The cache dir is the right home for this:
+     *  - It's app-private (can't be tampered with by other apps)
+     *  - It's a child of the path declared in file_provider_paths.xml so we
+     *    can hand a content:// URI to PackageInstaller
+     *  - It auto-clears when the OS needs space, so a stale download won't
+     *    haunt us forever
+     *
+     * Emits Downloading(progress=…) repeatedly, then exactly one Ready or Error.
+     */
+    fun download(info: UpdateInfo): Flow<UpdateState> = flow {
+        emit(UpdateState.Downloading(info, 0f))
+
+        val updatesDir = File(context.cacheDir, "updates")
+        if (!updatesDir.exists() && !updatesDir.mkdirs()) {
+            emit(UpdateState.Error("Couldn't prepare update folder."))
+            return@flow
+        }
+        val outputFile = File(updatesDir, "pulse-debug.apk")
+        // Wipe any previous download — fresh state every time.
+        outputFile.delete()
+
+        val request = Request.Builder()
+            .url(info.downloadUrl)
+            .header("User-Agent", "Pulse-Android-Updater")
+            .get()
+            .build()
+
+        try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    emit(UpdateState.Error("Download failed (HTTP ${response.code})."))
+                    return@flow
+                }
+                val body = response.body ?: run {
+                    emit(UpdateState.Error("Empty response body."))
+                    return@flow
+                }
+
+                // Total size: prefer Content-Length when present, fall back
+                // to the size we already read from the API (info.sizeBytes).
+                val total = body.contentLength().takeIf { it > 0 } ?: info.sizeBytes
+
+                body.byteStream().use { input ->
+                    outputFile.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var downloaded = 0L
+                        var lastEmitted = -1f
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            downloaded += read
+
+                            if (total > 0) {
+                                val progress = (downloaded.toFloat() / total).coerceIn(0f, 1f)
+                                // Only emit when the progress moves at least 1%
+                                // to avoid spamming the UI.
+                                if (progress - lastEmitted >= 0.01f) {
+                                    emit(UpdateState.Downloading(info, progress))
+                                    lastEmitted = progress
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            emit(UpdateState.Error("Download interrupted: ${e.message}"))
+            return@flow
+        }
+
+        emit(UpdateState.Ready(info, outputFile))
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * Hands the downloaded APK to Android's PackageInstaller. Android shows
+     * its standard install confirmation UI; from the user's perspective the
+     * app then closes and reopens as the new version.
+     *
+     * The user must have already granted "Install unknown apps" for Pulse
+     * (one-time settings trip — Android handles this dialog itself if not
+     * granted).
+     */
+    fun launchInstall(file: File) {
+        val authority = "${context.packageName}.fileprovider"
+        val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(intent)
+    }
+}
