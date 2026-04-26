@@ -83,7 +83,7 @@ LRCLIB is free and unauthenticated. Pulse just hits their API directly — no se
 
 ## What's new in v0.5.0
 
-### Major
+### Major details
 
 - **In-app updater.** Settings → Updates → "Check for updates" → if a newer build exists on GitHub, tap Download → tap Install → Android takes over. No more manual sideload. A small banner also shows on the Home screen when an update is available (only after you've manually checked — Pulse never phones home automatically).
 - **Continuous flowing wave on the playback scrubber.** Two summed sines for organic variation, scrolls leftward while playing, smoothly flattens to a line on pause. Replaces the bar-chart version from v0.4.2.
@@ -91,7 +91,7 @@ LRCLIB is free and unauthenticated. Pulse just hits their API directly — no se
 - **Fixed debug keystore** in CI (see Setup above) means users can update without uninstalling first.
 - **Build number visible in app.** Settings → About now shows `Pulse · v0.5.0 (build 7)` so you always know exactly what you're running.
 
-### Minor
+### Minor details
 
 - **LRCLIB cascade fixed.** The /api/get endpoint sometimes returns a 200 with null lyrics for tracks LRCLIB has but doesn't have lyrics for in your locale's exact match. Now correctly cascades to /search.
 - **LRCLIB duration tolerance** loosened from 5s to 10s — catches more edits/remasters of the same song.
