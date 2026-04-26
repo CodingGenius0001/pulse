@@ -93,7 +93,13 @@ class MusicScanner(private val context: Context) {
             val folderPath = folder.absolutePath
             queryAudioInFolder(folderPath).forEach { song ->
                 val pathKey = song.dataPath.takeIf { it.isNotBlank() }
-                val contentKey = "${song.title.lowercase()}|${song.artist.lowercase()}|${song.durationMs / 1000}"
+                // Normalise "Unknown artist" / blank to empty so two copies of
+                // the same song — one tagged and one not — still deduplicate on
+                // title + duration alone.
+                val normalisedArtist = song.artist
+                    .takeUnless { it.equals("Unknown artist", ignoreCase = true) || it.isBlank() }
+                    ?: ""
+                val contentKey = "${song.title.lowercase()}|$normalisedArtist|${song.durationMs / 1000}"
 
                 val isDuplicate = (pathKey != null && pathKey in seenPaths) ||
                         contentKey in seenContentKeys

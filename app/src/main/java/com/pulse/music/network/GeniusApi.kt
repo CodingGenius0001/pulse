@@ -133,18 +133,19 @@ object GeniusApi {
                 val body = response.body?.string() ?: return@withContext GeniusSearchOutcome.Unavailable
                 val parsed = json.decodeFromString(SearchResponse.serializer(), body)
 
+                // Without a known artist we have no way to disambiguate songs
+                // that share a popular title (e.g. "Heart Attack" appears for
+                // Demi Lovato, scarlxd, and others; "Flowers" for Miley Cyrus
+                // and Ed Sheeran's "Supermarket Flowers"). The old fallback
+                // that matched on title alone caused exactly these wrong picks.
+                // We now require a known artist for any match.
+                if (!knownArtist) return@withContext GeniusSearchOutcome.NoMatch
+
                 val firstGoodHit = parsed.response.hits.firstOrNull { hit ->
                     val result = hit.result
                     val titleMatches = result.title.cleanSearchText().titleLooksLike(cleanTitle)
                     if (!titleMatches) return@firstOrNull false
-
-                    if (!knownArtist) {
-                        true
-                    } else {
-                        result.primaryArtist?.name?.artistLooksLike(artist) == true
-                    }
-                } ?: parsed.response.hits.firstOrNull { hit ->
-                    !knownArtist && hit.result.title.cleanSearchText().titleLooksLike(cleanTitle)
+                    result.primaryArtist?.name?.artistLooksLike(artist) == true
                 } ?: return@withContext GeniusSearchOutcome.NoMatch
 
                 val r = firstGoodHit.result
@@ -242,10 +243,28 @@ private fun String.cleanSearchText(): String =
 
 private fun String.titleLooksLike(expected: String): Boolean {
     if (isBlank() || expected.isBlank()) return false
-    if (this == expected || contains(expected) || expected.contains(this)) return true
+    // Exact match on cleaned text is always good.
+    if (this == expected) return true
+
     val expectedTokens = expected.split(" ").filter { it.length > 2 }.toSet()
     val actualTokens = split(" ").filter { it.length > 2 }.toSet()
-    if (expectedTokens.isEmpty() || actualTokens.isEmpty()) return false
+
+    // If the Genius result has significant tokens not present in our query,
+    // it's a different song. "supermarket flowers" vs "flowers": "supermarket"
+    // is an extra token not in expected → reject. This prevents "Flowers" by
+    // Miley Cyrus matching "Supermarket Flowers" by Ed Sheeran.
+    val extraInActual = actualTokens - expectedTokens
+    if (extraInActual.isNotEmpty() && extraInActual.none { it in expectedTokens }) {
+        // Allow small additions like "(feat. ...)" that cleanSearchText already
+        // strips, but reject genuinely different leading/trailing words.
+        return false
+    }
+
+    // Otherwise require a meaningful token overlap.
+    if (expectedTokens.isEmpty() || actualTokens.isEmpty()) {
+        // Single-word titles: require exact match (already handled above).
+        return false
+    }
     val overlap = expectedTokens.intersect(actualTokens).size
     return overlap >= expectedTokens.size.coerceAtMost(2)
 }
