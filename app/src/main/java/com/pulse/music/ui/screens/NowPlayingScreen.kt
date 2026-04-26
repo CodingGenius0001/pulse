@@ -147,10 +147,10 @@ fun NowPlayingScreen(
 
     val lyricsResult by produceState<LyricsResult?>(
         initialValue = null,
-        key1 = song.id,
-        key2 = metadata?.resolvedTitle,
-        key3 = metadata?.resolvedArtist,
-        key4 = metadata?.resolvedAlbum,
+        song.id,
+        metadata?.resolvedTitle,
+        metadata?.resolvedArtist,
+        metadata?.resolvedAlbum,
     ) {
         value = null
         value = app.lyricsRepository.lyricsFor(song)
