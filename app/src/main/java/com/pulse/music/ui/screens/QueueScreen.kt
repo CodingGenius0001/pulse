@@ -2,6 +2,7 @@ package com.pulse.music.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,14 +46,6 @@ import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.CircleButton
 import com.pulse.music.ui.theme.PulseTheme
 
-/**
- * The current playback queue. Tapping an item jumps playback to it. The
- * up/down arrows move the item one position; the × removes it (unless it's
- * the currently-playing track). We chose explicit arrow buttons over
- * drag-to-reorder because true reorder gestures in Compose require a third-
- * party library (reorderable) that adds meaningful weight for what is
- * ultimately a secondary surface.
- */
 @Composable
 fun QueueScreen(
     onBack: () -> Unit,
@@ -67,17 +59,15 @@ fun QueueScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(PulseTheme.background)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .padding(horizontal = 20.dp),
     ) {
-        // Top bar
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CircleButton(onClick = onBack, size = 38.dp) {
+            CircleButton(onClick = onBack, size = 42.dp) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                     contentDescription = "Back",
@@ -85,24 +75,34 @@ fun QueueScreen(
                     modifier = Modifier.size(18.dp),
                 )
             }
-            Text(
-                text = "Queue",
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleLarge,
-            )
-            // Spacer to balance the back button
-            Box(modifier = Modifier.size(38.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "QUEUE",
+                    color = PulseTheme.colors.accentViolet,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Text(
+                    text = "${state.queue.size} tracks",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Box(modifier = Modifier.size(42.dp))
         }
 
         if (state.queue.isEmpty()) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(32.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(PulseTheme.colors.surfaceElevated)
+                    .padding(28.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "Queue is empty",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                 )
             }
             return
@@ -113,15 +113,13 @@ fun QueueScreen(
             if (currentSong == null) {
                 value = null
             } else {
-                PulseApplication.get()
-                    .metadataRepository
-                    .observe(currentSong.id)
-                    .collect { value = it }
+                PulseApplication.get().metadataRepository.observe(currentSong.id).collect { value = it }
             }
         }
 
         LazyColumn(
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (currentSong != null) {
                 item {
@@ -137,7 +135,6 @@ fun QueueScreen(
             items(state.queue.size) { index ->
                 val song = state.queue[index]
                 val isCurrent = index == state.currentIndex
-
                 QueueRow(
                     index = index,
                     title = song.title,
@@ -149,8 +146,8 @@ fun QueueScreen(
                     albumContent = {
                         AlbumArt(
                             song = song,
-                            cornerRadius = 8.dp,
-                            modifier = Modifier.size(48.dp),
+                            cornerRadius = 14.dp,
+                            modifier = Modifier.size(54.dp),
                         )
                     },
                     onTap = { vm.jumpToQueueIndex(index) },
@@ -163,8 +160,6 @@ fun QueueScreen(
     }
 }
 
-// items() above is the standard LazyListScope.items(count, itemContent) extension.
-
 @Composable
 private fun QueueReturnCard(
     song: Song,
@@ -175,35 +170,27 @@ private fun QueueReturnCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(PulseTheme.colors.pillSurfaceStrong)
+            .clip(RoundedCornerShape(24.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(24.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AlbumArt(
-            song = song,
-            cornerRadius = 10.dp,
-            modifier = Modifier.size(52.dp),
-        )
-
+        AlbumArt(song = song, cornerRadius = 14.dp, modifier = Modifier.size(56.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Now playing",
+                text = "Return to now playing",
                 color = PulseTheme.colors.accentViolet,
                 style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
             )
             Text(
                 text = title,
                 color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
             )
             Text(
                 text = artist,
@@ -213,13 +200,20 @@ private fun QueueReturnCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-
-        Icon(
-            imageVector = Icons.Filled.Headphones,
-            contentDescription = "Return to now playing",
-            tint = PulseTheme.colors.accentViolet,
-            modifier = Modifier.size(20.dp),
-        )
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(PulseTheme.colors.surfaceSoft),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Headphones,
+                contentDescription = "Return to now playing",
+                tint = PulseTheme.colors.accentViolet,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
@@ -241,32 +235,32 @@ private fun QueueRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-            .background(
-                if (isCurrent) PulseTheme.colors.pillSurfaceStrong
-                else androidx.compose.ui.graphics.Color.Transparent
-            )
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (isCurrent) PulseTheme.colors.surfaceSoft else PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(22.dp))
             .clickable(onClick = onTap)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Now-playing indicator
         Box(
-            modifier = Modifier.size(14.dp),
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(if (isCurrent) PulseTheme.colors.accentCream else PulseTheme.colors.surface),
             contentAlignment = Alignment.Center,
         ) {
             if (isCurrent) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = "Now playing",
-                    tint = PulseTheme.colors.accentViolet,
-                    modifier = Modifier.size(12.dp),
+                    tint = PulseTheme.colors.onPrimary,
+                    modifier = Modifier.size(14.dp),
                 )
             } else {
                 Text(
                     text = "${index + 1}",
-                    color = PulseTheme.colors.textDim,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -277,10 +271,9 @@ private fun QueueRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = if (isCurrent) PulseTheme.colors.accentViolet
-                else MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                color = if (isCurrent) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -290,30 +283,13 @@ private fun QueueRow(
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
             )
         }
 
-        // Reorder / remove controls
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            IconSmall(
-                icon = Icons.Filled.KeyboardArrowUp,
-                contentDescription = "Move up",
-                enabled = canMoveUp,
-                onClick = onMoveUp,
-            )
-            IconSmall(
-                icon = Icons.Filled.KeyboardArrowDown,
-                contentDescription = "Move down",
-                enabled = canMoveDown,
-                onClick = onMoveDown,
-            )
-            IconSmall(
-                icon = Icons.Filled.Close,
-                contentDescription = "Remove",
-                enabled = canRemove,
-                onClick = onRemove,
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconSmall(icon = Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", enabled = canMoveUp, onClick = onMoveUp)
+            IconSmall(icon = Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", enabled = canMoveDown, onClick = onMoveDown)
+            IconSmall(icon = Icons.Filled.Close, contentDescription = "Remove", enabled = canRemove, onClick = onRemove)
         }
     }
 }
@@ -327,16 +303,16 @@ private fun IconSmall(
 ) {
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(34.dp)
             .clip(CircleShape)
+            .background(PulseTheme.colors.surface)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
-            else PulseTheme.colors.textDim.copy(alpha = 0.5f),
+            tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else PulseTheme.colors.textDim.copy(alpha = 0.5f),
             modifier = Modifier.size(18.dp),
         )
     }

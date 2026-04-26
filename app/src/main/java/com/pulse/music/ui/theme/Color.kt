@@ -19,6 +19,7 @@ data class PulseColorTokens(
     val canvas: Color,
     val surface: Color,
     val surfaceElevated: Color,
+    val surfaceSoft: Color,
     val textPrimary: Color,
     val textSoft: Color,
     val textMuted: Color,
@@ -34,39 +35,41 @@ data class PulseColorTokens(
 )
 
 private val DarkTokens = PulseColorTokens(
-    canvas = Color(0xFF08080A),
-    surface = Color(0xFF0A0A0C),
-    surfaceElevated = Color(0xFF121214),
-    textPrimary = Color(0xFFFAFAF8),
-    textSoft = Color(0xFFE8E6E0),
-    textMuted = Color(0xFF888881),
-    textDim = Color(0xFF5A5A55),
-    onPrimary = Color(0xFF0A0A0C),
-    pillSurface = Color(0x0FFFFFFF),
-    pillSurfaceStrong = Color(0x1AFFFFFF),
-    line = Color(0x0FFFFFFF),
-    line2 = Color(0x1FFFFFFF),
-    accentViolet = Color(0xFFA78BFA),
-    accentPink = Color(0xFFF472B6),
-    accentCream = Color(0xFFF0DFC8),
+    canvas = Color(0xFF12100E),
+    surface = Color(0xFF171411),
+    surfaceElevated = Color(0xFF211C18),
+    surfaceSoft = Color(0xFF2A241F),
+    textPrimary = Color(0xFFF5F0E8),
+    textSoft = Color(0xFFE4D8CB),
+    textMuted = Color(0xFFAE9F90),
+    textDim = Color(0xFF75695D),
+    onPrimary = Color(0xFF12100E),
+    pillSurface = Color(0xFF1D1814),
+    pillSurfaceStrong = Color(0xFF2A231D),
+    line = Color(0x1EF5E8D8),
+    line2 = Color(0x33F5E8D8),
+    accentViolet = Color(0xFFD7B47A),
+    accentPink = Color(0xFFB97A5A),
+    accentCream = Color(0xFFF1E6D5),
 )
 
 private val LightTokens = PulseColorTokens(
-    canvas = Color(0xFFFAFAF8),
-    surface = Color(0xFFFFFFFF),
-    surfaceElevated = Color(0xFFF3F2EE),
-    textPrimary = Color(0xFF0A0A0C),
-    textSoft = Color(0xFF1F1F1D),
-    textMuted = Color(0xFF6B6B66),
-    textDim = Color(0xFF9A9A95),
-    onPrimary = Color(0xFFFAFAF8),
-    pillSurface = Color(0x0F000000),
-    pillSurfaceStrong = Color(0x1A000000),
-    line = Color(0x14000000),
-    line2 = Color(0x24000000),
-    accentViolet = Color(0xFF7C3AED),
-    accentPink = Color(0xFFDB2777),
-    accentCream = Color(0xFF8B6F47),
+    canvas = Color(0xFFF6F0E7),
+    surface = Color(0xFFFCF8F2),
+    surfaceElevated = Color(0xFFF0E7DC),
+    surfaceSoft = Color(0xFFE6D8C9),
+    textPrimary = Color(0xFF171411),
+    textSoft = Color(0xFF2A241F),
+    textMuted = Color(0xFF75695D),
+    textDim = Color(0xFFA6927C),
+    onPrimary = Color(0xFFF6F0E7),
+    pillSurface = Color(0xFFF1E7DB),
+    pillSurfaceStrong = Color(0xFFE5D7C7),
+    line = Color(0x1A171411),
+    line2 = Color(0x2B171411),
+    accentViolet = Color(0xFF9A6D3A),
+    accentPink = Color(0xFF96593F),
+    accentCream = Color(0xFF4A3A2A),
 )
 
 internal val LocalPulseColors = compositionLocalOf { DarkTokens }
@@ -103,22 +106,22 @@ object PulseTheme {
  */
 @Deprecated("Use PulseTheme.colors for theme-aware colors")
 object PulseColors {
-    val Canvas = Color(0xFF08080A)
-    val Surface = Color(0xFF0A0A0C)
-    val SurfaceElevated = Color(0xFF121214)
-    val TextPrimary = Color(0xFFFAFAF8)
-    val TextSoft = Color(0xFFE8E6E0)
-    val TextMuted = Color(0xFF888881)
-    val TextDim = Color(0xFF5A5A55)
-    val PillSurface = Color(0x0FFFFFFF)
-    val PillSurfaceStrong = Color(0x1AFFFFFF)
-    val Line = Color(0x0FFFFFFF)
-    val Line2 = Color(0x1FFFFFFF)
-    val AccentViolet = Color(0xFFA78BFA)
-    val AccentPink = Color(0xFFF472B6)
-    val AccentCream = Color(0xFFF0DFC8)
-    val CanvasLight = Color(0xFFFAFAF8)
-    val SurfaceLight = Color(0xFFFFFFFF)
-    val TextPrimaryLight = Color(0xFF0A0A0C)
-    val TextMutedLight = Color(0xFF6B6B66)
+    val Canvas = Color(0xFF12100E)
+    val Surface = Color(0xFF171411)
+    val SurfaceElevated = Color(0xFF211C18)
+    val TextPrimary = Color(0xFFF5F0E8)
+    val TextSoft = Color(0xFFE4D8CB)
+    val TextMuted = Color(0xFFAE9F90)
+    val TextDim = Color(0xFF75695D)
+    val PillSurface = Color(0xFF1D1814)
+    val PillSurfaceStrong = Color(0xFF2A231D)
+    val Line = Color(0x1EF5E8D8)
+    val Line2 = Color(0x33F5E8D8)
+    val AccentViolet = Color(0xFFD7B47A)
+    val AccentPink = Color(0xFFB97A5A)
+    val AccentCream = Color(0xFFF1E6D5)
+    val CanvasLight = Color(0xFFF6F0E7)
+    val SurfaceLight = Color(0xFFFCF8F2)
+    val TextPrimaryLight = Color(0xFF171411)
+    val TextMutedLight = Color(0xFF75695D)
 }

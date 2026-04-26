@@ -13,107 +13,99 @@ import androidx.compose.ui.unit.sp
  * Two weights: Normal (400) for body, Medium (500) for emphasis.
  * Heavy weights are avoided to preserve the refined aesthetic.
  */
-private val GoogleSansStack = FontFamily.SansSerif
+private val DisplayFamily = FontFamily.Serif
+private val BodyFamily = FontFamily.SansSerif
 
 val PulseTypography = Typography(
-    // Display — big hero titles
     displayLarge = TextStyle(
-        fontFamily = GoogleSansStack,
-        fontWeight = FontWeight.Medium,
-        fontSize = 32.sp,
-        lineHeight = 36.sp,
-        letterSpacing = 0.sp,
+        fontFamily = DisplayFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 38.sp,
+        lineHeight = 42.sp,
+        letterSpacing = (-0.5).sp,
     ),
     displayMedium = TextStyle(
-        fontFamily = GoogleSansStack,
-        fontWeight = FontWeight.Medium,
-        fontSize = 28.sp,
-        lineHeight = 32.sp,
-        letterSpacing = 0.sp,
+        fontFamily = DisplayFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 31.sp,
+        lineHeight = 36.sp,
+        letterSpacing = (-0.4).sp,
     ),
-
-    // Headlines — now-playing title, section page titles
     headlineLarge = TextStyle(
-        fontFamily = GoogleSansStack,
-        fontWeight = FontWeight.Medium,
+        fontFamily = DisplayFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-0.2).sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = DisplayFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 22.sp,
-        lineHeight = 26.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 28.sp,
+        letterSpacing = (-0.1).sp,
     ),
-
-    // Titles — section titles, card titles
     titleLarge = TextStyle(
-        fontFamily = GoogleSansStack,
-        fontWeight = FontWeight.Medium,
+        fontFamily = BodyFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 18.sp,
-        lineHeight = 22.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.1.sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = GoogleSansStack,
-        fontWeight = FontWeight.Medium,
+        fontFamily = BodyFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp,
-        lineHeight = 20.sp,
+        lineHeight = 21.sp,
         letterSpacing = 0.sp,
     ),
     titleSmall = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = BodyFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
-        lineHeight = 18.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 19.sp,
+        letterSpacing = 0.1.sp,
     ),
-
-    // Body — song titles, descriptions
     bodyLarge = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = BodyFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         lineHeight = 22.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.15.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = BodyFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 13.sp,
-        lineHeight = 18.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 19.sp,
+        letterSpacing = 0.1.sp,
     ),
     bodySmall = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = BodyFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 11.sp,
-        lineHeight = 14.sp,
-        letterSpacing = 0.sp,
+        lineHeight = 15.sp,
+        letterSpacing = 0.1.sp,
     ),
-
-    // Labels — pill buttons, tab labels
     labelLarge = TextStyle(
-        fontFamily = GoogleSansStack,
-        fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
+        fontFamily = BodyFamily,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.5.sp,
     ),
     labelMedium = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = BodyFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 14.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.4.sp,
     ),
     labelSmall = TextStyle(
-        fontFamily = GoogleSansStack,
+        fontFamily = BodyFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 10.sp,
         lineHeight = 12.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.6.sp,
     ),
 )

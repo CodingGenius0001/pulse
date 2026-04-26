@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -38,9 +39,6 @@ import androidx.compose.ui.unit.dp
 import com.pulse.music.data.Song
 import com.pulse.music.ui.theme.PulseTheme
 
-/**
- * The four bottom-nav destinations.
- */
 enum class Destination(
     val route: String,
     val label: String,
@@ -52,10 +50,6 @@ enum class Destination(
     Settings("settings", "Settings", Icons.Outlined.Settings),
 }
 
-/**
- * Bottom navigation row. Custom rather than Material3 NavigationBar so we
- * can get the pill-shaped active indicator that matches the mockup.
- */
 @Composable
 fun PulseBottomNav(
     currentRoute: String?,
@@ -65,45 +59,64 @@ fun PulseBottomNav(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
+            .padding(horizontal = 14.dp, vertical = 14.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(PulseTheme.colors.surface)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(28.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Destination.entries.forEach { destination ->
             val selected = currentRoute == destination.route
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (selected) PulseTheme.colors.pillSurfaceStrong else Color.Transparent)
+                    .weight(1f)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        if (selected) PulseTheme.colors.surfaceElevated else Color.Transparent,
+                    )
                     .clickable { onNavigate(destination) }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(
-                    imageVector = destination.icon,
-                    contentDescription = destination.label,
-                    tint = if (selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) {
+                                Brush.horizontalGradient(
+                                    listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink),
+                                )
+                            } else {
+                                Brush.horizontalGradient(
+                                    listOf(Color.Transparent, Color.Transparent),
+                                )
+                            },
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        imageVector = destination.icon,
+                        contentDescription = destination.label,
+                        tint = if (selected) PulseTheme.colors.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
                 Text(
                     text = destination.label,
-                    color = if (selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (selected) MaterialTheme.colorScheme.onBackground
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 )
             }
         }
     }
 }
 
-/**
- * Compact now-playing strip that floats above the tab bar.
- *
- * Glass translucent effect achieved via a semi-transparent white/black fill
- * layered with a subtle border — gives the "frosted" look without requiring
- * the RenderEffect-based blur that's slow on older devices.
- */
 @Composable
 fun MiniPlayer(
     song: Song,
@@ -117,23 +130,19 @@ fun MiniPlayer(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f))
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(18.dp),
-            )
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(24.dp))
             .clickable(onClick = onTap)
-            .padding(8.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AlbumArt(
             song = song,
-            cornerRadius = 8.dp,
-            modifier = Modifier.size(44.dp),
+            cornerRadius = 12.dp,
+            modifier = Modifier.size(48.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -151,64 +160,63 @@ fun MiniPlayer(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        // Play / pause
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onPlayPause),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        // Skip forward 10s — more useful in a local player than always jumping
-        // to the next track, which the user can still do with a long press.
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onSkipForward10),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Forward10,
-                contentDescription = "Forward 10 seconds",
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        // Next track
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onNext),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.SkipNext,
-                contentDescription = "Next track",
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(22.dp),
-            )
-        }
+        MiniPlayerAction(
+            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+            contentDescription = if (isPlaying) "Pause" else "Play",
+            emphasized = true,
+            onClick = onPlayPause,
+        )
+        MiniPlayerAction(
+            icon = Icons.Filled.Forward10,
+            contentDescription = "Forward 10 seconds",
+            onClick = onSkipForward10,
+        )
+        MiniPlayerAction(
+            icon = Icons.Filled.SkipNext,
+            contentDescription = "Next track",
+            onClick = onNext,
+        )
     }
 }
 
-/**
- * Wrapper for the bottom nav area with a subtle divider line.
- */
+@Composable
+private fun MiniPlayerAction(
+    icon: ImageVector,
+    contentDescription: String,
+    emphasized: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(if (emphasized) 40.dp else 36.dp)
+            .clip(CircleShape)
+            .background(
+                if (emphasized) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceSoft,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (emphasized) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
 @Composable
 fun BottomNavContainer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier.background(
+            Brush.verticalGradient(
+                listOf(Color.Transparent, PulseTheme.colors.canvas.copy(alpha = 0.9f)),
+            ),
+        ),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -219,5 +227,4 @@ fun BottomNavContainer(
     }
 }
 
-/** Bottom padding reserved in scroll content so the mini-player + tab bar don't overlap items. */
-val BottomBarContentPadding = PaddingValues(bottom = 160.dp)
+val BottomBarContentPadding = PaddingValues(bottom = 176.dp)

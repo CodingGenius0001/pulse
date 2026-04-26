@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -90,8 +91,29 @@ fun PulseApp() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(PulseTheme.background),
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            PulseTheme.background,
+                            PulseTheme.colors.surface,
+                            PulseTheme.background,
+                        ),
+                    ),
+                ),
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                PulseTheme.colors.accentViolet.copy(alpha = 0.12f),
+                                Color.Transparent,
+                            ),
+                            radius = 1200f,
+                        ),
+                    ),
+            )
             Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
                 Box(modifier = Modifier.weight(1f)) {
                     NavHost(

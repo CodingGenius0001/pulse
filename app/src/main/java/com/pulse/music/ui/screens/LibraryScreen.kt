@@ -1,6 +1,7 @@
 package com.pulse.music.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,8 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -30,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -48,7 +48,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
@@ -79,52 +78,48 @@ fun LibraryScreen(
     val likedSongs by vm.likedSongs.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
 
-    // Pre-group songs here (where @Composable context is explicit) so the
-    // lazy list just consumes the result. Grouping inside the when-branches
-    // below sits in a non-composable lambda and can't call remember().
     val albumsGrouped = remember(allSongs) { allSongs.groupBy { it.album }.entries.toList() }
     val artistsGrouped = remember(allSongs) { allSongs.groupBy { it.artist }.entries.toList() }
 
     val scope = rememberCoroutineScope()
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
-
     var selectedFilter by remember { mutableStateOf(LibraryFilter.Playlists) }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(PulseTheme.background),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent),
     ) {
-        // Header
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "Library",
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleLarge,
-            )
-            CircleButton(onClick = { showNewPlaylistDialog = true }, size = 36.dp) {
+            Column {
+                Text(
+                    text = "Library",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.displayMedium,
+                )
+                Text(
+                    text = "${allSongs.size} songs arranged cleanly.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            CircleButton(onClick = { showNewPlaylistDialog = true }, size = 42.dp) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = "New playlist",
                     tint = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
 
-        // Filter pills
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(LibraryFilter.entries.size) { idx ->
-                val filter = LibraryFilter.entries[idx]
+            items(LibraryFilter.entries) { filter ->
                 FilterPill(
                     label = filter.label,
                     selected = selectedFilter == filter,
@@ -133,58 +128,44 @@ fun LibraryScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
         LazyColumn(
-            contentPadding = PaddingValues(
-                start = 20.dp,
-                end = 20.dp,
-                bottom = BottomBarContentPadding.calculateBottomPadding(),
-            ),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (selectedFilter) {
                 LibraryFilter.Playlists -> {
-                    // System: Liked songs
                     item {
                         SystemPlaylistRow(
                             title = "Liked songs",
-                            subtitle = "${likedSongs.size} songs",
-                            gradient = listOf(PulseTheme.colors.accentPink, Color(0xFFEC4899)),
-                            icon = { Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.size(22.dp)) },
+                            subtitle = "${likedSongs.size} tracks",
+                            gradient = listOf(PulseTheme.colors.accentPink, PulseTheme.colors.accentViolet),
+                            icon = { Icon(Icons.Filled.Favorite, null, tint = PulseTheme.colors.onPrimary, modifier = Modifier.size(20.dp)) },
                             onClick = { if (likedSongs.isNotEmpty()) onSongTap(likedSongs, 0) },
                         )
                     }
-                    // System: Recently added
                     item {
                         SystemPlaylistRow(
                             title = "Recently added",
-                            subtitle = "${recentlyAdded.size} songs · Auto",
-                            gradient = listOf(Color(0xFF60A5FA), Color(0xFF3B82F6)),
-                            icon = { Icon(Icons.Filled.History, null, tint = Color.White, modifier = Modifier.size(22.dp)) },
+                            subtitle = "${recentlyAdded.size} tracks",
+                            gradient = listOf(Color(0xFF556270), Color(0xFF8E9EAB)),
+                            icon = { Icon(Icons.Filled.History, null, tint = PulseTheme.colors.onPrimary, modifier = Modifier.size(20.dp)) },
                             onClick = { if (recentlyAdded.isNotEmpty()) onSongTap(recentlyAdded, 0) },
                         )
                     }
-                    // User playlists
                     items(playlists.filter { it.systemType == null }) { playlist ->
                         UserPlaylistRow(
                             playlist = playlist,
                             vm = vm,
-                            onClick = { /* TODO detail screen */ },
+                            onClick = {},
                         )
                     }
                     if (playlists.none { it.systemType == null }) {
-                        item {
-                            Spacer(Modifier.height(24.dp))
-                            Text(
-                                text = "No user playlists yet",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                        }
+                        item { EmptyLibraryMessage("No user playlists yet.") }
                     }
                 }
+
                 LibraryFilter.Albums -> {
                     items(albumsGrouped) { (albumName, songs) ->
                         AlbumRow(
@@ -196,6 +177,7 @@ fun LibraryScreen(
                         )
                     }
                 }
+
                 LibraryFilter.Artists -> {
                     items(artistsGrouped) { (artistName, songs) ->
                         ArtistRow(
@@ -205,11 +187,11 @@ fun LibraryScreen(
                         )
                     }
                 }
+
                 LibraryFilter.Songs -> {
                     items(allSongs.size) { index ->
-                        val song = allSongs[index]
                         SongRow(
-                            song = song,
+                            song = allSongs[index],
                             onClick = { onSongTap(allSongs, index) },
                         )
                     }
@@ -239,19 +221,18 @@ private fun NewPlaylistDialog(
         onDismissRequest = onDismiss,
         title = { Text("New playlist", color = MaterialTheme.colorScheme.onBackground) },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Give your playlist a name. You can add songs to it later.",
+                    text = "Name the collection first. You can sort songs into it after.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 12.dp),
                 )
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(PulseTheme.colors.pillSurface)
-                        .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(PulseTheme.colors.surfaceElevated)
+                        .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(18.dp))
                         .padding(14.dp),
                 ) {
                     if (input.isEmpty()) {
@@ -265,9 +246,7 @@ private fun NewPlaylistDialog(
                         value = input,
                         onValueChange = { input = it.take(60) },
                         singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onBackground,
-                        ),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                         modifier = Modifier.fillMaxWidth(),
@@ -276,10 +255,8 @@ private fun NewPlaylistDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { if (input.isNotBlank()) onCreate(input.trim()) },
-            ) {
-                Text("Create", color = MaterialTheme.colorScheme.onBackground)
+            TextButton(onClick = { if (input.isNotBlank()) onCreate(input.trim()) }) {
+                Text("Create", color = PulseTheme.colors.accentViolet)
             }
         },
         dismissButton = {
@@ -287,7 +264,7 @@ private fun NewPlaylistDialog(
                 Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = PulseTheme.colors.surface,
     )
 }
 
@@ -302,38 +279,25 @@ private fun SystemPlaylistRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         SolidThumbnail(
             color = Color.Transparent,
-            modifier = Modifier
-                .size(52.dp)
-                .background(Brush.linearGradient(gradient), RoundedCornerShape(10.dp)),
+            modifier = Modifier.size(58.dp).background(Brush.linearGradient(gradient), RoundedCornerShape(16.dp)),
+            cornerRadius = 16.dp,
         ) {
             icon()
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = subtitle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            Text(text = title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleMedium)
+            Text(text = subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
-        Text(
-            text = "⋯",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(end = 4.dp),
-        )
+        Text(text = "Open", color = PulseTheme.colors.accentViolet, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -343,7 +307,6 @@ private fun UserPlaylistRow(
     vm: LibraryViewModel,
     onClick: () -> Unit,
 ) {
-    // Fetch thumbnail art lazily
     val thumbnailSongs by produceState<List<Song>>(initialValue = emptyList(), playlist.id) {
         value = vm.getPlaylistThumbnailArt(playlist.id)
     }
@@ -351,37 +314,34 @@ private fun UserPlaylistRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         AlbumMosaic(
             songs = thumbnailSongs,
             seed = "playlist_${playlist.id}",
-            modifier = Modifier.size(52.dp),
+            modifier = Modifier.size(58.dp),
+            cornerRadius = 16.dp,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = playlist.name,
                 color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${thumbnailSongs.size} songs · You",
+                text = "${thumbnailSongs.size} songs",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 3.dp),
             )
         }
-        Text(
-            text = "⋯",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(end = 4.dp),
-        )
+        Text(text = "Edit", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -390,21 +350,19 @@ private fun SongRow(song: Song, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(PulseTheme.colors.surfaceElevated)
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AlbumArt(
-            song = song,
-            cornerRadius = 6.dp,
-            modifier = Modifier.size(44.dp),
-        )
+        AlbumArt(song = song, cornerRadius = 12.dp, modifier = Modifier.size(50.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = song.title,
                 color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -414,7 +372,6 @@ private fun SongRow(song: Song, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -431,32 +388,17 @@ private fun AlbumRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        AlbumArt(
-            song = representativeSong,
-            cornerRadius = 8.dp,
-            modifier = Modifier.size(52.dp),
-        )
+        AlbumArt(song = representativeSong, cornerRadius = 14.dp, modifier = Modifier.size(58.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = albumName,
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "$artist · $songCount songs",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            Text(text = albumName, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = "$artist - $songCount songs", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -466,41 +408,48 @@ private fun ArtistRow(artist: String, songCount: Int, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .background(
-                    Brush.linearGradient(listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink)),
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                ),
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(Brush.horizontalGradient(listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink))),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = artist.firstOrNull()?.uppercase() ?: "?",
-                color = Color.White,
+                color = PulseTheme.colors.onPrimary,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = artist,
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "$songCount songs",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            Text(text = artist, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = "$songCount songs", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+@Composable
+private fun EmptyLibraryMessage(text: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+        )
     }
 }

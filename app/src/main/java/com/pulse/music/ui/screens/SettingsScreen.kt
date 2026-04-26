@@ -72,124 +72,67 @@ fun SettingsScreen(
     val prefs = PulseApplication.get().userPreferences
     val themePref by prefs.theme.collectAsStateWithLifecycle(initialValue = ThemePreference.Dark)
     val scope = rememberCoroutineScope()
-
     var showRenameDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(PulseTheme.background),
-        contentPadding = PaddingValues(
-            top = 8.dp,
-            bottom = BottomBarContentPadding.calculateBottomPadding(),
-        ),
+        modifier = Modifier.fillMaxSize().background(Color.Transparent),
+        contentPadding = PaddingValues(top = 12.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp)) {
-                Text(
-                    text = "Settings",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.displayMedium,
-                )
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Text(text = "Settings", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.displayMedium)
+                Text(text = "Keep the app understated and predictable.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
 
+        item { ProfileCard(userName = userName, onEdit = { showRenameDialog = true }) }
+        item { SettingsSection(title = "Appearance") { ThemeRow(themePref = themePref) { mode -> scope.launch { prefs.setTheme(mode) } } } }
         item {
-            ProfileCard(
-                userName = userName,
-                onEdit = { showRenameDialog = true },
-            )
-        }
-
-        item {
-            SectionLabel("Appearance")
-            SettingRow(
-                title = "Theme",
-                subtitle = when (themePref) {
-                    ThemePreference.Light -> "Light mode"
-                    ThemePreference.Dark -> "Dark mode"
-                    ThemePreference.Auto -> "Follow system"
-                },
-                trailing = {
-                    ThemeToggle(
-                        selected = themePref,
-                        onSelect = { mode ->
-                            scope.launch { prefs.setTheme(mode) }
-                        },
-                    )
-                },
-            )
-        }
-
-        item {
-            SectionLabel("Music folder")
-            SettingRow(
-                title = "Source folder",
-                subtitle = folderState.displayPath,
-                leading = {
-                    Icon(
-                        imageVector = Icons.Filled.FolderOpen,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
-            )
-            if (!folderState.exists) {
+            SettingsSection(title = "Music folder") {
+                val scanSub = when (val s = scanState) {
+                    is LibraryViewModel.ScanState.Completed -> if (s.count == 0) "Folder is empty" else "${s.count} songs after the latest scan"
+                    is LibraryViewModel.ScanState.Scanning -> "Scanning the library"
+                    else -> "${allSongs.size} songs indexed"
+                }
                 SettingRow(
-                    title = "Create Pulse folder",
-                    subtitle = "Make the folder so you can drop music in",
-                    onClick = { vm.createPulseFolder() },
+                    title = "Source folder",
+                    subtitle = folderState.displayPath,
+                    leading = { SectionIcon(Icons.Filled.FolderOpen) },
+                )
+                if (!folderState.exists) {
+                    SettingRow(
+                        title = "Create Pulse folder",
+                        subtitle = "Create the dedicated folder first",
+                        onClick = { vm.createPulseFolder() },
+                        trailing = { Chevron() },
+                    )
+                }
+                SettingRow(
+                    title = "Rescan library",
+                    subtitle = scanSub,
+                    onClick = { vm.rescan() },
                     trailing = { Chevron() },
                 )
             }
-            val scanSub = when (val s = scanState) {
-                is LibraryViewModel.ScanState.Completed ->
-                    if (s.count == 0) "Folder is empty"
-                    else "${s.count} songs · Just scanned"
-                is LibraryViewModel.ScanState.Scanning -> "Scanning…"
-                else -> "${allSongs.size} songs"
+        }
+        item {
+            SettingsSection(title = "Account") {
+                SettingRow(title = "Sign in with Google", subtitle = "Not signed in yet")
+                SettingRow(title = "Sync across devices", subtitle = "Reserved for a future account flow")
             }
-            SettingRow(
-                title = "Rescan library",
-                subtitle = scanSub,
-                onClick = { vm.rescan() },
-                trailing = { Chevron() },
-            )
         }
-
+        item { SettingsSection(title = "Updates") { UpdateRow(updateVm) } }
         item {
-            SectionLabel("Account")
-            SettingRow(
-                title = "Sign in with Google",
-                subtitle = "Not signed in · Coming soon",
-                // Disabled for v0.2 — Firebase integration is scaffolded but off
-            )
-            SettingRow(
-                title = "Sync across devices",
-                subtitle = "Requires sign-in",
-            )
-        }
-
-        item {
-            SectionLabel("Updates")
-            UpdateRow(updateVm)
-        }
-
-        item {
-            SectionLabel("About")
-            val versionLabel = run {
-                val v = com.pulse.music.BuildConfig.VERSION_NAME
-                val build = com.pulse.music.BuildConfig.BUILD_NUMBER
-                if (build > 0) "Pulse · v$v (build $build)" else "Pulse · v$v"
+            SettingsSection(title = "About") {
+                val versionLabel = run {
+                    val v = com.pulse.music.BuildConfig.VERSION_NAME
+                    val build = com.pulse.music.BuildConfig.BUILD_NUMBER
+                    if (build > 0) "Pulse v$v (build $build)" else "Pulse v$v"
+                }
+                SettingRow(title = versionLabel, subtitle = "Made with care for local listening")
             }
-            SettingRow(
-                title = versionLabel,
-                subtitle = "Made with care",
-            )
         }
-
-        item { Spacer(Modifier.height(40.dp)) }
     }
 
     if (showRenameDialog) {
@@ -208,67 +151,70 @@ fun SettingsScreen(
 private fun ProfileCard(userName: String, onEdit: () -> Unit) {
     Row(
         modifier = Modifier
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 20.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PulseTheme.colors.pillSurface)
-            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(28.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(28.dp))
             .padding(18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(62.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink)
-                    ),
-                ),
+                .background(Brush.horizontalGradient(listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink))),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = userName.firstOrNull()?.uppercase() ?: "K",
-                color = Color.White,
-                fontWeight = FontWeight.Medium,
-                fontSize = 20.sp,
-            )
+            Text(text = userName.firstOrNull()?.uppercase() ?: "P", color = PulseTheme.colors.onPrimary, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = userName,
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = "Tap Edit to change your name",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            Text(text = userName, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.headlineMedium)
+            Text(text = "Personal details stay on-device for now.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
         Text(
             text = "Edit",
-            color = MaterialTheme.colorScheme.onBackground,
+            color = PulseTheme.colors.onPrimary,
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(PulseTheme.colors.pillSurfaceStrong)
+                .clip(RoundedCornerShape(18.dp))
+                .background(PulseTheme.colors.accentCream)
                 .clickable(onClick = onEdit)
-                .padding(horizontal = 14.dp, vertical = 7.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
         )
     }
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        color = PulseTheme.colors.textDim,
-        style = MaterialTheme.typography.labelSmall,
-        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 8.dp),
+private fun SettingsSection(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 20.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = title.uppercase(), color = PulseTheme.colors.accentViolet, style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.height(8.dp))
+        content()
+    }
+}
+
+@Composable
+private fun ThemeRow(themePref: ThemePreference, onSelect: (ThemePreference) -> Unit) {
+    SettingRow(
+        title = "Theme",
+        subtitle = when (themePref) {
+            ThemePreference.Light -> "Light mode"
+            ThemePreference.Dark -> "Dark mode"
+            ThemePreference.Auto -> "Follow system"
+        },
+        trailing = { ThemeToggle(selected = themePref, onSelect = onSelect) },
     )
 }
 
@@ -283,8 +229,9 @@ private fun SettingRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-            .padding(horizontal = 24.dp, vertical = 14.dp),
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -293,25 +240,13 @@ private fun SettingRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (leading != null) leading()
+            leading?.invoke()
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = subtitle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
+                Text(text = title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleSmall)
+                Text(text = subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
         }
-        if (trailing != null) {
-            Box(modifier = Modifier.padding(start = 12.dp)) { trailing() }
-        }
+        trailing?.invoke()
     }
 }
 
@@ -319,10 +254,9 @@ private fun SettingRow(
 private fun ThemeToggle(selected: ThemePreference, onSelect: (ThemePreference) -> Unit) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(PulseTheme.colors.pillSurface)
-            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(999.dp))
-            .padding(3.dp),
+            .clip(RoundedCornerShape(20.dp))
+            .background(PulseTheme.colors.surfaceSoft)
+            .padding(4.dp),
     ) {
         ThemePreference.entries.forEach { mode ->
             val isSelected = mode == selected
@@ -333,17 +267,15 @@ private fun ThemeToggle(selected: ThemePreference, onSelect: (ThemePreference) -
             }
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (isSelected) MaterialTheme.colorScheme.onBackground else Color.Transparent)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (isSelected) PulseTheme.colors.accentCream else Color.Transparent)
                     .clickable { onSelect(mode) }
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) MaterialTheme.colorScheme.background
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isSelected) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
                 )
             }
         }
@@ -351,13 +283,21 @@ private fun ThemeToggle(selected: ThemePreference, onSelect: (ThemePreference) -
 }
 
 @Composable
+private fun SectionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(PulseTheme.colors.surfaceSoft),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = PulseTheme.colors.accentViolet, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
 private fun Chevron() {
-    Text(
-        text = "›",
-        color = PulseTheme.colors.textDim,
-        fontWeight = FontWeight.Medium,
-        fontSize = 20.sp,
-    )
+    Text(text = ">", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
 }
 
 @Composable
@@ -369,29 +309,25 @@ private fun RenameDialog(
     var input by remember { mutableStateOf(currentName) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Your name") },
+        title = { Text("Your name", color = MaterialTheme.colorScheme.onBackground) },
         text = {
             BasicTextField(
                 value = input,
                 onValueChange = { input = it.take(32) },
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onBackground,
-                ),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(PulseTheme.colors.pillSurface)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(PulseTheme.colors.surfaceElevated)
                     .padding(14.dp),
             )
         },
         confirmButton = {
-            TextButton(
-                onClick = { if (input.isNotBlank()) onSave(input.trim()) },
-            ) {
-                Text("Save", color = MaterialTheme.colorScheme.onBackground)
+            TextButton(onClick = { if (input.isNotBlank()) onSave(input.trim()) }) {
+                Text("Save", color = PulseTheme.colors.accentViolet)
             }
         },
         dismissButton = {
@@ -399,115 +335,72 @@ private fun RenameDialog(
                 Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = PulseTheme.colors.surface,
     )
 }
 
-/**
- * The single Settings row that drives the entire in-app updater UI.
- *
- * Renders one of six visual states based on the shared [UpdateViewModel]:
- *
- *  - Idle        → "Check for updates" — tap to start
- *  - Checking    → spinner + "Checking…"
- *  - UpToDate    → checkmark + "You're on the latest build"
- *  - Available   → big call-to-action with version + size + Download button
- *  - Downloading → progress bar + percent
- *  - Ready       → "Update ready" + Install button (hands off to PackageInstaller)
- *  - Error       → error message + Retry button
- *
- * The flow is one-way: a tap drives the ViewModel which drives this state,
- * not the other way around. That keeps the row dumb and the update logic
- * testable in isolation.
- */
 @Composable
 private fun UpdateRow(vm: UpdateViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
-
     when (val s = state) {
         UpdateState.Idle -> {
             SettingRow(
                 title = "Check for updates",
-                subtitle = "Pulls the newest build from GitHub",
+                subtitle = "Pull the latest build from GitHub",
+                leading = { SectionIcon(Icons.Filled.SystemUpdate) },
                 onClick = { vm.checkForUpdate() },
-                leading = {
-                    Icon(
-                        imageVector = Icons.Filled.SystemUpdate,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
                 trailing = { Chevron() },
             )
         }
+
         UpdateState.Checking -> {
             SettingRow(
-                title = "Checking for updates…",
+                title = "Checking for updates",
                 subtitle = "Talking to GitHub",
                 leading = {
                     CircularProgressIndicator(
                         strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = PulseTheme.colors.accentViolet,
                         modifier = Modifier.size(20.dp),
                     )
                 },
             )
         }
+
         UpdateState.UpToDate -> {
             SettingRow(
                 title = "You're up to date",
-                subtitle = "No newer build available",
+                subtitle = "No newer build is available",
+                leading = { SectionIcon(Icons.Filled.CheckCircle) },
                 onClick = { vm.checkForUpdate() },
-                leading = {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        tint = PulseTheme.colors.accentViolet,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
                 trailing = {
-                    Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "Check again",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    Icon(imageVector = Icons.Filled.Refresh, contentDescription = "Check again", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 },
             )
         }
+
         is UpdateState.Available -> AvailableCard(
             buildNumber = s.info.buildNumber,
             sizeBytes = s.info.sizeBytes,
             onDownload = { vm.downloadUpdate() },
             onDismiss = { vm.dismiss() },
         )
+
         is UpdateState.Downloading -> DownloadingCard(progress = s.progress)
+
         is UpdateState.Ready -> ReadyCard(
             onInstall = { vm.installUpdate() },
             onDismiss = { vm.dismiss() },
         )
+
         is UpdateState.Error -> {
             SettingRow(
                 title = "Update check failed",
                 subtitle = s.message,
+                leading = { SectionIcon(Icons.Filled.ErrorOutline) },
                 onClick = { vm.checkForUpdate() },
-                leading = {
-                    Icon(
-                        imageVector = Icons.Filled.ErrorOutline,
-                        contentDescription = null,
-                        tint = PulseTheme.colors.accentPink,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
                 trailing = {
-                    Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "Retry",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    Icon(imageVector = Icons.Filled.Refresh, contentDescription = "Retry", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 },
             )
         }
@@ -523,81 +416,16 @@ private fun AvailableCard(
 ) {
     Column(
         modifier = Modifier
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PulseTheme.colors.pillSurface)
-            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(20.dp))
-            .padding(18.dp),
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceSoft)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.SystemUpdate,
-                contentDescription = null,
-                tint = PulseTheme.colors.accentViolet,
-                modifier = Modifier.size(24.dp),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Update available",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "Build #$buildNumber · ${formatBytes(sizeBytes)}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-        }
+        Text(text = "Update available", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleLarge)
+        Text(text = "Build #$buildNumber - ${formatBytes(sizeBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.onBackground)
-                    .clickable(onClick = onDownload)
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.background,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "Download",
-                        color = MaterialTheme.colorScheme.background,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(PulseTheme.colors.pillSurfaceStrong)
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Later",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+            ActionButton(label = "Download", icon = Icons.Filled.Download, filled = true, onClick = onDownload)
+            ActionButton(label = "Later", filled = false, onClick = onDismiss)
         }
     }
 }
@@ -606,46 +434,18 @@ private fun AvailableCard(
 private fun DownloadingCard(progress: Float) {
     Column(
         modifier = Modifier
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PulseTheme.colors.pillSurface)
-            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(20.dp))
-            .padding(18.dp),
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceSoft)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            CircularProgressIndicator(
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(20.dp),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Downloading update…",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-        }
+        Text(text = "Downloading update", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleLarge)
+        Text(text = "${(progress * 100).toInt()}%", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         LinearProgressIndicator(
             progress = { progress.coerceIn(0f, 1f) },
-            color = MaterialTheme.colorScheme.onBackground,
-            trackColor = PulseTheme.colors.pillSurfaceStrong,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp)),
+            color = PulseTheme.colors.accentViolet,
+            trackColor = PulseTheme.colors.surfaceElevated,
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(6.dp)),
         )
     }
 }
@@ -657,78 +457,52 @@ private fun ReadyCard(
 ) {
     Column(
         modifier = Modifier
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PulseTheme.colors.pillSurface)
-            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(20.dp))
-            .padding(18.dp),
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceSoft)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = null,
-                tint = PulseTheme.colors.accentViolet,
-                modifier = Modifier.size(24.dp),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Update ready to install",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "Tap Install — Android will take it from here",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-        }
+        Text(text = "Update ready", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleLarge)
+        Text(text = "Install hands off to Android's package installer.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.onBackground)
-                    .clickable(onClick = onInstall)
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Install",
-                    color = MaterialTheme.colorScheme.background,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(PulseTheme.colors.pillSurfaceStrong)
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 18.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Cancel",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+            ActionButton(label = "Install", filled = true, onClick = onInstall)
+            ActionButton(label = "Cancel", filled = false, onClick = onDismiss)
         }
     }
 }
 
-/**
- * Format bytes as a human-readable size. Used by the update card to show
- * APK download size as e.g. "20.4 MB" rather than "21383265".
- */
+@Composable
+private fun ActionButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    filled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (filled) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceElevated)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (filled) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Text(
+            text = label,
+            color = if (filled) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
 private fun formatBytes(bytes: Long): String {
     if (bytes <= 0) return "0 B"
     val mb = bytes / 1024.0 / 1024.0

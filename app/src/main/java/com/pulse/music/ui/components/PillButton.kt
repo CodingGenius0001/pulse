@@ -19,19 +19,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pulse.music.ui.theme.PulseTheme
 
-/**
- * A group of circular buttons inside a single translucent pill.
- * Mirrors the prev/next + shuffle/repeat clusters in the Now Playing mockup.
- *
- * Children are laid out in a horizontal Row; content receives RowScope
- * so child buttons get standard row modifiers.
- */
 @Composable
 fun PillGroup(
     modifier: Modifier = Modifier,
@@ -39,19 +33,16 @@ fun PillGroup(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(PulseTheme.colors.pillSurface)
-            .border(1.dp, PulseTheme.colors.line, RoundedCornerShape(999.dp))
-            .padding(4.dp),
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(22.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         content = content,
     )
 }
 
-/**
- * A single circular button meant to live inside a PillGroup.
- */
 @Composable
 fun PillIconButton(
     onClick: () -> Unit,
@@ -70,9 +61,6 @@ fun PillIconButton(
     }
 }
 
-/**
- * The big white play-pause pill. Wider than tall, hero of the transport row.
- */
 @Composable
 fun PlayPill(
     onClick: () -> Unit,
@@ -81,27 +69,27 @@ fun PlayPill(
 ) {
     Box(
         modifier = modifier
-            .defaultMinSize(minWidth = 88.dp, minHeight = 52.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(MaterialTheme.colorScheme.onBackground)
+            .defaultMinSize(minWidth = 108.dp, minHeight = 56.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink),
+                ),
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 22.dp, vertical = 14.dp),
+            .padding(horizontal = 24.dp, vertical = 15.dp),
         contentAlignment = Alignment.Center,
     ) {
         content()
     }
 }
 
-/**
- * Standalone circular icon button on a subtle surface — used for header
- * back/overflow buttons.
- */
 @Composable
 fun CircleButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 38.dp,
-    background: Color = PulseTheme.colors.pillSurfaceStrong,
+    background: Color = PulseTheme.colors.surfaceElevated,
     content: @Composable () -> Unit,
 ) {
     Box(
@@ -109,6 +97,7 @@ fun CircleButton(
             .size(size)
             .clip(CircleShape)
             .background(background)
+            .border(1.dp, PulseTheme.colors.line, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -116,9 +105,6 @@ fun CircleButton(
     }
 }
 
-/**
- * Chip-style filter pill used in the Library filter row.
- */
 @Composable
 fun FilterPill(
     label: String,
@@ -126,20 +112,20 @@ fun FilterPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (selected) MaterialTheme.colorScheme.onBackground else PulseTheme.colors.pillSurface
-    val fg = if (selected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurfaceVariant
+    val bg = if (selected) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceElevated
+    val fg = if (selected) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val borderStroke = if (selected) {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground)
+        BorderStroke(1.dp, PulseTheme.colors.accentCream)
     } else {
-        BorderStroke(1.dp, PulseTheme.colors.line)
+        BorderStroke(1.dp, PulseTheme.colors.line2)
     }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(bg)
-            .border(borderStroke, RoundedCornerShape(999.dp))
+            .border(borderStroke, RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
     ) {
         Text(
             text = label,
