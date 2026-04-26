@@ -108,6 +108,13 @@ class MusicRepository(
         dao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId))
     }
 
+    suspend fun removeSongFromPlaylist(playlistId: Long, songId: Long) {
+        dao.removeSongFromPlaylist(playlistId, songId)
+    }
+
+    suspend fun playlistContainsSong(playlistId: Long, songId: Long): Boolean =
+        dao.playlistContainsSong(playlistId, songId) > 0
+
     suspend fun getThumbnailSongs(playlistId: Long): List<Song> =
         dao.getTopFourSongsForPlaylist(playlistId)
 

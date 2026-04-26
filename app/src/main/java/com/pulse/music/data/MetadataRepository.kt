@@ -43,7 +43,7 @@ class MetadataRepository(
             GeniusSearchOutcome.Unavailable -> null
         }
 
-        val retriedHit = if (primaryHit == null && fallbackInfo.hasUsefulArtistFor(song)) {
+        val retriedHit = if (primaryHit == null && fallbackInfo.hasUsefulArtistFor(song) && fallbackInfo.matchesSongContext(song)) {
             when (val retried = GeniusApi.searchForMetadata(song.title, fallbackInfo?.artist.orEmpty())) {
                 is GeniusSearchOutcome.Found -> retried.hit
                 else -> null
@@ -112,8 +112,37 @@ class MetadataRepository(
             !artist.isUnknownArtist() &&
             (song.artist.isUnknownArtist() || !artist.equals(song.artist, ignoreCase = true))
 
+    private fun LrcLibApi.TrackInfo?.matchesSongContext(song: Song): Boolean {
+        if (this == null) return false
+
+        val titleMatches = title.cleanKey() == song.title.cleanKey()
+        if (!titleMatches) return false
+
+        val albumTrusted = song.album.isUnknownAlbum() || album.cleanKey().isNotBlank() && album.cleanKey() == song.album.cleanKey()
+        if (!albumTrusted) return false
+
+        if (!song.artist.isUnknownArtist()) {
+            return artist.cleanKey() == song.artist.cleanKey()
+        }
+
+        return !artist.isNullOrBlank() && !artist.isUnknownArtist()
+    }
+
     private fun String?.isUnknownArtist(): Boolean =
         isNullOrBlank() ||
             equals("Unknown artist", ignoreCase = true) ||
             equals("<unknown>", ignoreCase = true)
+
+    private fun String?.isUnknownAlbum(): Boolean =
+        isNullOrBlank() ||
+            equals("Unknown album", ignoreCase = true) ||
+            equals("<unknown>", ignoreCase = true)
+
+    private fun String?.cleanKey(): String =
+        this.orEmpty()
+            .lowercase()
+            .replace(Regex("""\([^)]*\)|\[[^]]*]"""), " ")
+            .replace(Regex("""[^a-z0-9 ]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
 }

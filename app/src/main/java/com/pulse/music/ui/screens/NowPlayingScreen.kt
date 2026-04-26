@@ -37,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -96,7 +97,9 @@ import com.pulse.music.lyrics.LrcLine
 import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.lyrics.parseLrc
 import com.pulse.music.player.PlayerViewModel
+import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
+import com.pulse.music.ui.components.AddToPlaylistDialog
 import com.pulse.music.ui.components.CircleButton
 import com.pulse.music.ui.components.PillGroup
 import com.pulse.music.ui.components.PillIconButton
@@ -116,7 +119,9 @@ fun NowPlayingScreen(
     onOpenQueue: () -> Unit,
 ) {
     val vm: PlayerViewModel = viewModel(factory = PlayerViewModel.Factory())
+    val libraryVm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val state by vm.state.collectAsStateWithLifecycle()
+    val playlists by libraryVm.playlists.collectAsStateWithLifecycle()
     val song = state.currentSong
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -140,13 +145,20 @@ fun NowPlayingScreen(
     val displayArtist = metadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: song.artist
     val displayAlbum = metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: song.album
 
-    val lyricsResult by produceState<LyricsResult?>(initialValue = null, song.id) {
+    val lyricsResult by produceState<LyricsResult?>(
+        initialValue = null,
+        key1 = song.id,
+        key2 = metadata?.resolvedTitle,
+        key3 = metadata?.resolvedArtist,
+        key4 = metadata?.resolvedAlbum,
+    ) {
         value = null
         value = app.lyricsRepository.lyricsFor(song)
     }
 
     var lyricsExpanded by remember(song.id) { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
+    var showAddToPlaylist by remember(song.id) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -172,6 +184,7 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
         ) {
             Row(
@@ -204,11 +217,10 @@ fun NowPlayingScreen(
                 Box(modifier = Modifier.size(42.dp))
             }
 
-            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false)
                         .clip(RoundedCornerShape(34.dp))
                         .background(PulseTheme.colors.surfaceElevated)
                         .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(34.dp))
@@ -223,7 +235,7 @@ fun NowPlayingScreen(
                             song = song,
                             cornerRadius = 26.dp,
                             modifier = Modifier
-                                .fillMaxWidth()
+                                .fillMaxWidth(0.84f)
                                 .aspectRatio(1f),
                         )
 
@@ -252,7 +264,7 @@ fun NowPlayingScreen(
                             }
                             Box(
                                 modifier = Modifier
-                                    .size(46.dp)
+                                    .size(54.dp)
                                     .clip(CircleShape)
                                     .background(PulseTheme.colors.surfaceSoft)
                                     .clickable { vm.toggleLike() },
@@ -262,7 +274,7 @@ fun NowPlayingScreen(
                                     imageVector = if (song.liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                                     contentDescription = if (song.liked) "Unlike" else "Like",
                                     tint = if (song.liked) PulseTheme.colors.accentPink else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp),
+                                    modifier = Modifier.size(26.dp),
                                 )
                             }
                         }
@@ -324,7 +336,7 @@ fun NowPlayingScreen(
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     BottomAction(
@@ -382,6 +394,20 @@ fun NowPlayingScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                text = { Text("Add to playlist") },
+                                onClick = {
+                                    overflowOpen = false
+                                    showAddToPlaylist = true
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Share") },
                                 onClick = {
                                     overflowOpen = false
@@ -408,6 +434,16 @@ fun NowPlayingScreen(
                 result = lyricsResult,
                 positionMs = state.positionMs,
                 onClose = { lyricsExpanded = false },
+            )
+        }
+
+        if (showAddToPlaylist) {
+            AddToPlaylistDialog(
+                playlists = playlists.filter { it.systemType == null },
+                onDismiss = { showAddToPlaylist = false },
+                onCreatePlaylist = { name -> libraryVm.createPlaylist(name) },
+                onAddToPlaylist = { playlistId -> libraryVm.addSongToPlaylist(playlistId, song.id) },
+                launchSuspend = { block -> scope.launch { block() } },
             )
         }
     }

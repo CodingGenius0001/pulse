@@ -145,8 +145,20 @@ class LibraryViewModel(
         viewModelScope.launch { repository.toggleLike(song) }
     }
 
+    fun observeSongsInPlaylist(playlistId: Long): Flow<List<Song>> =
+        repository.observeSongsInPlaylist(playlistId)
+
     /** Creates a new user playlist. Returns the new playlist's ID. */
     suspend fun createPlaylist(name: String): Long = repository.createPlaylist(name)
+
+    suspend fun addSongToPlaylist(playlistId: Long, songId: Long) =
+        repository.addSongToPlaylist(playlistId, songId)
+
+    suspend fun removeSongFromPlaylist(playlistId: Long, songId: Long) =
+        repository.removeSongFromPlaylist(playlistId, songId)
+
+    suspend fun playlistContainsSong(playlistId: Long, songId: Long): Boolean =
+        repository.playlistContainsSong(playlistId, songId)
 
     /**
      * Fetches the top 4 songs for a playlist — used to build 2x2 mosaic

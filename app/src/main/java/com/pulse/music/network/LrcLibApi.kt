@@ -29,7 +29,7 @@ object LrcLibApi {
     )
 
     private const val BASE_URL = "https://lrclib.net/api"
-    private const val USER_AGENT = "Pulse-Android/0.5.3 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.7 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -56,6 +56,13 @@ object LrcLibApi {
         if (cleanTrack.isBlank()) return@withContext LrcLibResponse.NotFound
 
         val knownArtist = artistName.isKnownArtist()
+        val knownAlbum = albumName.isKnownAlbum()
+        if (!knownArtist && !knownAlbum) {
+            // With neither artist nor album we only have a raw title, which is too
+            // ambiguous for lyrics lookups. Better to retry later with enriched
+            // metadata than cache the wrong song.
+            return@withContext LrcLibResponse.NotFound
+        }
         if (knownArtist) {
             val exact = exactGet(cleanTrack, artistName, albumName, durationSeconds)
             if (exact is LrcLibResponse.Found && exact.hasContent()) {
@@ -105,6 +112,8 @@ object LrcLibApi {
         if (cleanTrack.isBlank()) return@withContext null
 
         val knownArtist = artistName.isKnownArtist()
+        val knownAlbum = albumName.isKnownAlbum()
+        if (!knownArtist && !knownAlbum) return@withContext null
         if (knownArtist) {
             exactGetInfo(cleanTrack, artistName, albumName, durationSeconds)?.let { return@withContext it }
         }
@@ -361,7 +370,11 @@ object LrcLibApi {
         val useful = candidates.filter { it.hasContent() }
         if (useful.isEmpty()) return null
 
-        val minimumScore = if (expectedArtist.isKnownArtist()) 50 else 62
+        val minimumScore = when {
+            expectedArtist.isKnownArtist() -> 56
+            expectedAlbum?.isKnownAlbum() == true -> 74
+            else -> 86
+        }
         return useful
             .map { it to scoreCandidate(it, expectedTrack, expectedArtist, expectedAlbum, durationSeconds) }
             .filter { (_, score) -> score >= minimumScore }

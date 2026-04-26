@@ -57,6 +57,7 @@ import com.pulse.music.ui.components.AlbumMosaic
 import com.pulse.music.ui.components.BottomBarContentPadding
 import com.pulse.music.ui.components.CircleButton
 import com.pulse.music.ui.components.FilterPill
+import com.pulse.music.ui.components.PlaylistDetailDialog
 import com.pulse.music.ui.components.SolidThumbnail
 import com.pulse.music.ui.theme.PulseTheme
 import kotlinx.coroutines.launch
@@ -83,6 +84,7 @@ fun LibraryScreen(
 
     val scope = rememberCoroutineScope()
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
+    var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var selectedFilter by remember { mutableStateOf(LibraryFilter.Playlists) }
 
     Column(
@@ -158,7 +160,7 @@ fun LibraryScreen(
                         UserPlaylistRow(
                             playlist = playlist,
                             vm = vm,
-                            onClick = {},
+                            onClick = { selectedPlaylist = playlist },
                         )
                     }
                     if (playlists.none { it.systemType == null }) {
@@ -207,6 +209,22 @@ fun LibraryScreen(
                 scope.launch { vm.createPlaylist(name) }
                 showNewPlaylistDialog = false
             },
+        )
+    }
+
+    selectedPlaylist?.let { playlist ->
+        val playlistSongs by produceState<List<Song>>(initialValue = emptyList(), playlist.id) {
+            vm.observeSongsInPlaylist(playlist.id).collect { value = it }
+        }
+        PlaylistDetailDialog(
+            playlist = playlist,
+            playlistSongs = playlistSongs,
+            allSongs = allSongs,
+            onDismiss = { selectedPlaylist = null },
+            onSongTap = onSongTap,
+            onAddSong = { songId -> vm.addSongToPlaylist(playlist.id, songId) },
+            onRemoveSong = { songId -> vm.removeSongFromPlaylist(playlist.id, songId) },
+            launchSuspend = { block -> scope.launch { block() } },
         )
     }
 }

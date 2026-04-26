@@ -32,22 +32,34 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          SDK_ROOT="/usr/local/lib/android/sdk"
+          CMDLINE_TOOLS_BIN="$SDK_ROOT/cmdline-tools/latest/bin"
+          if [ ! -x "$CMDLINE_TOOLS_BIN/sdkmanager" ]; then
+            CMDLINE_TOOLS_BIN="$(find "$SDK_ROOT/cmdline-tools" -maxdepth 2 -path '*/bin' | head -n 1)"
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$CMDLINE_TOOLS_BIN" >> "$GITHUB_PATH"
+          yes | "$CMDLINE_TOOLS_BIN/sdkmanager" --licenses >/dev/null
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: 8.7
 
@@ -108,7 +120,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk release-staging/pulse-debug.apk
 
       - name: Upload workflow artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pulse-debug-apk
           path: release-staging/pulse-debug.apk
@@ -130,7 +142,7 @@ jobs:
 
       - name: Publish versioned release (immutable history)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.versioned_tag }}
           name: "Build #${{ github.run_number }} (${{ steps.tag.outputs.short_sha }})"
@@ -159,7 +171,7 @@ jobs:
 
       - name: Update 'latest' floating release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: latest
           name: "Latest debug build"
