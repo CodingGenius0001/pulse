@@ -114,6 +114,8 @@ import com.pulse.music.ui.components.PlayPill
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.util.formatDuration
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -169,6 +171,7 @@ fun NowPlayingScreen(
     var showAddToPlaylist by remember(song.id) { mutableStateOf(false) }
     var showFixMatch by remember(song.id) { mutableStateOf(false) }
     var matchRefreshState by remember(song.id) { mutableStateOf<MatchRefreshState?>(null) }
+    var matchRefreshJob by remember(song.id) { mutableStateOf<Job?>(null) }
 
     Box(
         modifier = Modifier
@@ -480,12 +483,11 @@ fun NowPlayingScreen(
                 onSave = { title, artist, album ->
                     showFixMatch = false
                     matchRefreshState = MatchRefreshState.Loading
-                    scope.launch {
-                        runCatching {
+                    matchRefreshJob = scope.launch {
+                        try {
                             val refreshedMetadata = app.metadataRepository.correctMatch(song, title, artist, album)
                             val refreshedLyrics = app.lyricsRepository.refresh(song)
-                            refreshedMetadata to refreshedLyrics
-                        }.onSuccess { (refreshedMetadata, refreshedLyrics) ->
+                            if (!isActive) return@launch
                             val message = when {
                                 !refreshedMetadata.artworkUrl.isNullOrBlank() ->
                                     "Matched the song and refreshed artwork${lyricsSuffix(refreshedLyrics)}."
@@ -495,10 +497,15 @@ fun NowPlayingScreen(
                                     "Saved the correction, but Pulse still could not confirm a safe Genius artwork match${lyricsSuffix(refreshedLyrics)}."
                             }
                             matchRefreshState = MatchRefreshState.Success(message)
-                        }.onFailure { error ->
+                        } catch (_: java.util.concurrent.CancellationException) {
+                            // User cancelled the in-flight refresh dialog.
+                        } catch (error: Exception) {
+                            if (!isActive) return@launch
                             matchRefreshState = MatchRefreshState.Error(
                                 error.message ?: "Couldn't refresh metadata and lyrics right now.",
                             )
+                        } finally {
+                            matchRefreshJob = null
                         }
                     }
                 },
@@ -506,7 +513,13 @@ fun NowPlayingScreen(
         }
 
         when (val refresh = matchRefreshState) {
-            MatchRefreshState.Loading -> MatchRefreshLoadingDialog()
+            MatchRefreshState.Loading -> MatchRefreshLoadingDialog(
+                onCancel = {
+                    matchRefreshJob?.cancel()
+                    matchRefreshJob = null
+                    matchRefreshState = null
+                },
+            )
             is MatchRefreshState.Success -> MatchRefreshMessageDialog(
                 title = "Song updated",
                 message = refresh.message,
@@ -994,9 +1007,11 @@ private sealed interface MatchRefreshState {
 }
 
 @Composable
-private fun MatchRefreshLoadingDialog() {
+private fun MatchRefreshLoadingDialog(
+    onCancel: () -> Unit,
+) {
     AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = onCancel,
         title = { Text("Refreshing song", color = MaterialTheme.colorScheme.onBackground) },
         text = {
             Row(
@@ -1015,7 +1030,11 @@ private fun MatchRefreshLoadingDialog() {
                 )
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            TextButton(onClick = onCancel) {
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
         containerColor = PulseTheme.colors.surface,
     )
 }

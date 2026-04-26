@@ -53,7 +53,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.ThemePreference
 import com.pulse.music.ui.LibraryViewModel
-import com.pulse.music.ui.components.BottomBarContentPadding
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
@@ -76,7 +75,7 @@ fun SettingsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
-        contentPadding = PaddingValues(top = 12.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
+        contentPadding = PaddingValues(top = 12.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
@@ -132,6 +131,9 @@ fun SettingsScreen(
                 }
                 SettingRow(title = versionLabel, subtitle = "Made with care for local listening")
             }
+        }
+        item {
+            Spacer(Modifier.height(20.dp))
         }
     }
 
@@ -416,6 +418,7 @@ private fun AvailableCard(
 ) {
     Column(
         modifier = Modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(PulseTheme.colors.surfaceSoft)
             .padding(16.dp),
@@ -423,9 +426,23 @@ private fun AvailableCard(
     ) {
         Text(text = "Update available", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleLarge)
         Text(text = "Build #$buildNumber - ${formatBytes(sizeBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionButton(label = "Download", icon = Icons.Filled.Download, filled = true, onClick = onDownload)
-            ActionButton(label = "Later", filled = false, onClick = onDismiss)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            ActionButton(
+                modifier = Modifier.weight(1.45f),
+                label = "Download",
+                icon = Icons.Filled.Download,
+                filled = true,
+                onClick = onDownload,
+            )
+            ActionButton(
+                modifier = Modifier.weight(1f),
+                label = "Later",
+                filled = false,
+                onClick = onDismiss,
+            )
         }
     }
 }
@@ -434,6 +451,7 @@ private fun AvailableCard(
 private fun DownloadingCard(progress: Float) {
     Column(
         modifier = Modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(PulseTheme.colors.surfaceSoft)
             .padding(16.dp),
@@ -457,6 +475,7 @@ private fun ReadyCard(
 ) {
     Column(
         modifier = Modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(PulseTheme.colors.surfaceSoft)
             .padding(16.dp),
@@ -464,28 +483,42 @@ private fun ReadyCard(
     ) {
         Text(text = "Update ready", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleLarge)
         Text(text = "Install hands off to Android's package installer.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionButton(label = "Install", filled = true, onClick = onInstall)
-            ActionButton(label = "Cancel", filled = false, onClick = onDismiss)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            ActionButton(
+                modifier = Modifier.weight(1.2f),
+                label = "Install",
+                filled = true,
+                onClick = onInstall,
+            )
+            ActionButton(
+                modifier = Modifier.weight(1f),
+                label = "Cancel",
+                filled = false,
+                onClick = onDismiss,
+            )
         }
     }
 }
 
 @Composable
 private fun ActionButton(
+    modifier: Modifier = Modifier,
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     filled: Boolean,
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(18.dp))
             .background(if (filled) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceElevated)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         if (icon != null) {
             Icon(
