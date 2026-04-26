@@ -2,12 +2,7 @@ package com.pulse.music.ui.screens
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -19,20 +14,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -48,14 +44,12 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Lyrics
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +59,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,6 +74,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -88,7 +84,9 @@ import androidx.media3.common.Player
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
 import com.pulse.music.data.SongMetadata
+import com.pulse.music.lyrics.LrcLine
 import com.pulse.music.lyrics.LyricsResult
+import com.pulse.music.lyrics.parseLrc
 import com.pulse.music.player.PlayerViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.CircleButton
@@ -101,6 +99,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.PI
+import kotlin.math.sin
 
 @Composable
 fun NowPlayingScreen(
@@ -125,9 +125,7 @@ fun NowPlayingScreen(
         app.metadataRepository.observe(song.id).collect { value = it }
     }
     LaunchedEffect(song.id) {
-        scope.launch(Dispatchers.IO) {
-            app.metadataRepository.resolve(song)
-        }
+        app.metadataRepository.resolve(song)
     }
 
     val displayTitle = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title
@@ -135,7 +133,12 @@ fun NowPlayingScreen(
     val displayAlbum = metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: song.album
 
     var overflowOpen by remember { mutableStateOf(false) }
-    var lyricsOpen by remember { mutableStateOf(false) }
+    var lyricsVisible by remember { mutableStateOf(false) }
+    var lyricsExpanded by remember(song.id) { mutableStateOf(false) }
+
+    val lyricsResult by produceState<LyricsResult?>(initialValue = null, song.id, lyricsVisible) {
+        value = if (lyricsVisible) app.lyricsRepository.lyricsFor(song) else null
+    }
 
     Column(
         modifier = Modifier
@@ -143,7 +146,6 @@ fun NowPlayingScreen(
             .background(PulseTheme.background)
             .statusBarsPadding(),
     ) {
-        // Top bar — back arrow + song context, no more overflow button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -175,7 +177,6 @@ fun NowPlayingScreen(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            // Spacer so the title stays perfectly centered
             Box(modifier = Modifier.size(38.dp))
         }
 
@@ -184,19 +185,28 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .padding(horizontal = 24.dp),
         ) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
 
             AlbumArt(
                 song = song,
                 cornerRadius = 20.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
+                    .aspectRatio(0.82f),
             )
 
-            Spacer(Modifier.height(24.dp))
+            if (lyricsVisible) {
+                Spacer(Modifier.height(14.dp))
+                InlineLyricsSection(
+                    result = lyricsResult,
+                    positionMs = state.positionMs,
+                    expanded = lyricsExpanded,
+                    onToggleExpanded = { lyricsExpanded = !lyricsExpanded },
+                )
+            }
 
-            // Title + like
+            Spacer(Modifier.height(18.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top,
@@ -246,7 +256,6 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // Transport: prev / PLAY / next — clean and symmetric
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(
@@ -289,10 +298,6 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.weight(1f))
 
-            // Bottom action row — Lyrics · Queue · More (dropdown for shuffle/repeat/share)
-            // The overflow button is now in thumb reach at the bottom instead of the
-            // top-right corner. Pulling its companion actions (shuffle/repeat/share)
-            // down with it keeps everything ergonomic.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -304,9 +309,13 @@ fun NowPlayingScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BottomAction(
-                    label = "Lyrics",
+                    label = if (lyricsVisible) "Hide" else "Lyrics",
                     icon = Icons.Outlined.Lyrics,
-                    onClick = { lyricsOpen = true },
+                    active = lyricsVisible,
+                    onClick = {
+                        lyricsVisible = !lyricsVisible
+                        if (!lyricsVisible) lyricsExpanded = false
+                    },
                 )
                 BottomAction(
                     label = "Queue",
@@ -324,11 +333,7 @@ fun NowPlayingScreen(
                         onDismissRequest = { overflowOpen = false },
                     ) {
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (state.shuffleEnabled) "Shuffle · on" else "Shuffle",
-                                )
-                            },
+                            text = { Text(if (state.shuffleEnabled) "Shuffle · on" else "Shuffle") },
                             onClick = {
                                 vm.toggleShuffle()
                                 overflowOpen = false
@@ -357,15 +362,18 @@ fun NowPlayingScreen(
                                 overflowOpen = false
                             },
                             leadingIcon = {
-                                val icon = when (state.repeatMode) {
-                                    Player.REPEAT_MODE_ONE -> Icons.Filled.RepeatOne
-                                    else -> Icons.Filled.Repeat
-                                }
                                 Icon(
-                                    imageVector = icon,
+                                    imageVector = if (state.repeatMode == Player.REPEAT_MODE_ONE) {
+                                        Icons.Filled.RepeatOne
+                                    } else {
+                                        Icons.Filled.Repeat
+                                    },
                                     contentDescription = null,
-                                    tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) PulseTheme.colors.accentViolet
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) {
+                                        PulseTheme.colors.accentViolet
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                 )
                             },
                         )
@@ -394,25 +402,8 @@ fun NowPlayingScreen(
             }
         }
     }
-
-    if (lyricsOpen) {
-        LyricsDialog(
-            song = song,
-            positionMs = state.positionMs,
-            onDismiss = { lyricsOpen = false },
-        )
-    }
 }
 
-/**
- * Shares the current song via the Android system share sheet. If we have a
- * cached Genius URL for the song, we share that so the recipient gets an
- * actual working link. Otherwise we fall back to just the title + artist.
- *
- * The dialog action is launched from the current composition scope, keeping
- * the coroutine tied to the visible Now Playing surface.
- * The disk read is a single primary-key Room lookup.
- */
 private fun shareSong(
     scope: CoroutineScope,
     context: android.content.Context,
@@ -440,6 +431,185 @@ private fun shareSong(
 }
 
 @Composable
+private fun InlineLyricsSection(
+    result: LyricsResult?,
+    positionMs: Long,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(PulseTheme.colors.pillSurfaceStrong.copy(alpha = 0.9f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Lyrics",
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            if (result is LyricsResult.Found) {
+                Text(
+                    text = if (expanded) "Show less" else "View lyrics",
+                    color = PulseTheme.colors.accentViolet,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.clickable(onClick = onToggleExpanded),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        when (val lyrics = result) {
+            null -> {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = "Loading lyrics…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            is LyricsResult.Found -> {
+                if (lyrics.synced) {
+                    if (expanded) {
+                        SyncedLyricsBody(
+                            lrcText = lyrics.text,
+                            positionMs = positionMs,
+                            maxHeight = 178.dp,
+                        )
+                    } else {
+                        SyncedLyricsPreview(
+                            lrcText = lyrics.text,
+                            positionMs = positionMs,
+                        )
+                    }
+                } else {
+                    if (expanded) {
+                        PlainLyricsBody(text = lyrics.text, maxHeight = 178.dp)
+                    } else {
+                        PlainLyricsPreview(text = lyrics.text)
+                    }
+                }
+            }
+
+            is LyricsResult.NotFound -> {
+                Text(
+                    text = "No matching lyrics found for this track.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            is LyricsResult.Error -> {
+                Text(
+                    text = lyrics.message,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncedLyricsPreview(
+    lrcText: String,
+    positionMs: Long,
+) {
+    val lines = remember(lrcText) { parseLrc(lrcText) }
+    if (lines.isEmpty()) {
+        Text(
+            text = "These lyrics could not be parsed.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        return
+    }
+
+    val activeIndex = remember(positionMs, lines) { activeLyricsIndex(lines, positionMs) }
+    val startIndex = (activeIndex - 1).coerceAtLeast(0)
+    val endIndex = (activeIndex + 2).coerceAtMost(lines.lastIndex)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        for (index in startIndex..endIndex) {
+            val line = lines[index]
+            val isActive = index == activeIndex
+            Text(
+                text = line.text,
+                color = if (isActive) MaterialTheme.colorScheme.onBackground
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = if (isActive) MaterialTheme.typography.titleMedium
+                else MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlainLyricsPreview(text: String) {
+    val preview = remember(text) {
+        text.lines()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .take(4)
+            .joinToString("\n")
+    }
+    Text(
+        text = preview.ifBlank { "No readable lyric lines found." },
+        color = MaterialTheme.colorScheme.onBackground,
+        style = MaterialTheme.typography.bodyLarge,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun PlainLyricsBody(
+    text: String,
+    maxHeight: androidx.compose.ui.unit.Dp,
+) {
+    val scroll = rememberScrollState()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = maxHeight)
+            .verticalScroll(scroll),
+    ) {
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onBackground,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
 private fun WaveformScrubber(
     waveSeed: Int,
     isPlaying: Boolean,
@@ -447,42 +617,42 @@ private fun WaveformScrubber(
     durationMs: Long,
     onSeek: (Long) -> Unit,
 ) {
-    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val progress = if (durationMs > 0) {
+        (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
     var trackWidthPx by remember { mutableStateOf(1f) }
     var dragProgress by remember { mutableFloatStateOf(-1f) }
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
-    val activeColor = PulseTheme.colors.accentPink.copy(alpha = 0.92f)
+    val waveColor = Color(0xFFF3DAE8)
+    val pillColor = Color.White
     val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
 
     val waveParts = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        List(5) {
+        List(6) {
             WavePart(
-                cycles = random.nextDouble(0.65, 2.4).toFloat(),
-                amplitude = random.nextDouble(0.18, 1.0).toFloat(),
-                speed = random.nextDouble(0.45, 1.5).toFloat(),
-                phase = random.nextDouble(0.0, kotlin.math.PI * 2).toFloat(),
+                cycles = random.nextDouble(0.85, 2.8).toFloat(),
+                amplitude = random.nextDouble(0.22, 1.0).toFloat(),
+                speed = random.nextDouble(0.55, 1.7).toFloat(),
+                phase = random.nextDouble(0.0, PI * 2).toFloat(),
             )
         }
     }
 
-    val transition = rememberInfiniteTransition(label = "waveform")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * kotlin.math.PI.toFloat()),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "wavePhase",
-    )
     val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.18f,
-        animationSpec = tween(durationMillis = 450),
+        targetValue = if (isPlaying) 1f else 0.28f,
+        animationSpec = tween(durationMillis = 320),
         label = "waveAmplitude",
     )
+    val frameSeconds by produceState(initialValue = 0f) {
+        while (true) {
+            withFrameNanos { value = it / 1_000_000_000f }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
@@ -493,14 +663,14 @@ private fun WaveformScrubber(
                 .pointerInput(durationMs) {
                     detectTapGestures { offset ->
                         if (durationMs > 0) {
-                            val frac = (offset.x / trackWidthPx).coerceIn(0f, 1f)
-                            onSeek((frac * durationMs).toLong())
+                            val fraction = (offset.x / trackWidthPx).coerceIn(0f, 1f)
+                            onSeek((fraction * durationMs).toLong())
                         }
                     }
                 }
                 .pointerInput(durationMs) {
                     detectDragGestures(
-                        onDragStart = { offset: Offset ->
+                        onDragStart = { offset ->
                             dragProgress = (offset.x / trackWidthPx).coerceIn(0f, 1f)
                         },
                         onDrag = { change, _ ->
@@ -515,52 +685,52 @@ private fun WaveformScrubber(
                         onDragCancel = { dragProgress = -1f },
                     )
                 },
-            contentAlignment = Alignment.CenterStart,
         ) {
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
             ) {
-                val w = size.width
+                val width = size.width
                 val centerY = size.height / 2f
                 val trackHeight = 4.dp.toPx()
-                val thumbWidth = 8.dp.toPx()
-                val thumbHeight = 34.dp.toPx()
-                val thumbX = (w * shownProgress).coerceIn(thumbWidth / 2f, w - thumbWidth / 2f)
-                val trackRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
+                val pillWidth = 10.dp.toPx()
+                val pillHeight = 34.dp.toPx()
+                val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
 
-                drawRoundRect(
-                    color = inactiveColor,
-                    topLeft = Offset(0f, centerY - trackHeight / 2f),
-                    size = Size(w, trackHeight),
-                    cornerRadius = trackRadius,
-                )
+                val rightTrackStart = pillX + pillWidth / 2f + 2.dp.toPx()
+                if (rightTrackStart < width) {
+                    drawRoundRect(
+                        color = inactiveColor,
+                        topLeft = Offset(rightTrackStart, centerY - trackHeight / 2f),
+                        size = Size(width - rightTrackStart, trackHeight),
+                        cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
+                    )
+                }
 
-                if (thumbX > 2f) {
+                val waveEnd = (pillX - pillWidth / 2f - 2.dp.toPx()).coerceAtLeast(0f)
+                if (waveEnd > 6f) {
                     val path = Path()
-                    val maxAmp = 7.5.dp.toPx() * amplitude
-                    val effectiveWidth = thumbX.coerceAtLeast(1f)
-                    val step = 3f
+                    val maxAmp = 7.8.dp.toPx() * amplitude
+                    val step = 2.5f
                     var x = 0f
                     path.moveTo(0f, centerY)
-                    while (x <= effectiveWidth) {
-                        val t = x / effectiveWidth
-                        val envelope = 0.55f + 0.45f * kotlin.math.sin(t * kotlin.math.PI.toFloat())
-                        val yOffset = waveParts.sumOf { part ->
+                    while (x <= waveEnd) {
+                        val normalized = x / waveEnd
+                        val envelope = 0.52f + 0.48f * sin(normalized * PI.toFloat())
+                        val offset = waveParts.sumOf { part ->
                             val angle =
-                                (t * part.cycles * 2f * kotlin.math.PI.toFloat()) +
-                                    (phase * part.speed) +
+                                (normalized * part.cycles * 2f * PI.toFloat()) +
+                                    (frameSeconds * part.speed * 2.1f) +
                                     part.phase
-                            (kotlin.math.sin(angle) * part.amplitude).toDouble()
+                            (sin(angle) * part.amplitude).toDouble()
                         }.toFloat() / waveParts.size
-                        val y = centerY + (yOffset * maxAmp * envelope)
-                        path.lineTo(x, y)
+                        path.lineTo(x, centerY + (offset * maxAmp * envelope))
                         x += step
                     }
                     drawPath(
                         path = path,
-                        color = activeColor,
+                        color = waveColor,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(
                             width = 3.dp.toPx(),
                             cap = StrokeCap.Round,
@@ -570,10 +740,10 @@ private fun WaveformScrubber(
                 }
 
                 drawRoundRect(
-                    color = activeColor,
-                    topLeft = Offset(thumbX - thumbWidth / 2f, centerY - thumbHeight / 2f),
-                    size = Size(thumbWidth, thumbHeight),
-                    cornerRadius = CornerRadius(thumbWidth / 2f, thumbWidth / 2f),
+                    color = pillColor,
+                    topLeft = Offset(pillX - pillWidth / 2f, centerY - pillHeight / 2f),
+                    size = Size(pillWidth, pillHeight),
+                    cornerRadius = CornerRadius(pillWidth / 2f, pillWidth / 2f),
                 )
             }
         }
@@ -586,7 +756,7 @@ private fun WaveformScrubber(
         ) {
             Text(
                 text = formatDuration(
-                    if (dragProgress >= 0f) (dragProgress * durationMs).toLong() else positionMs
+                    if (dragProgress >= 0f) (dragProgress * durationMs).toLong() else positionMs,
                 ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
@@ -607,194 +777,14 @@ private data class WavePart(
     val phase: Float,
 )
 
-/*
-/**
- * Combined wave + scrubber. Continuous flowing wave on the played side,
- * thin track on the unplayed side, circular knob at the playhead.
- *
- *   ┌─────────────────── 48dp tall drag area ───────────────────────────┐
- *   │   ╭╮╭─╮╭──╮╭──╮╭╮╭─╮╭   ●   ──────────────────────────────────────  │
- *   │   continuous wavy curve  knob       thin muted track (unplayed)    │
- *   └────────────────────────────────────────────────────────────────────┘
- *      0:18                                                         2:56
- *
- * The wave is drawn as a smooth Path stroked along the played portion.
- * Y values come from summing two sine waves of different frequencies and
- * phases — gives the curve organic-looking variation without the rigidity
- * of a single sine, so peaks and troughs differ in height and spacing.
- *
- * When playback pauses, amplitude animates from 1 → 0 over 600ms. The
- * shape stays sampled (the path is still drawn) so it gracefully flattens
- * rather than abruptly disappearing. Same on resume in reverse.
- */
-@Composable
-private fun WavyScrubber(
-    isPlaying: Boolean,
-    positionMs: Long,
-    durationMs: Long,
-    onSeek: (Long) -> Unit,
-) {
-    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-
-    var trackWidthPx by remember { mutableStateOf(1f) }
-    var dragProgress by remember { mutableFloatStateOf(-1f) }
-    val shownProgress = if (dragProgress >= 0f) dragProgress else progress
-
-    // Phase animation — drives the leftward scroll while playing.
-    val transition = rememberInfiniteTransition(label = "wave")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * kotlin.math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "phase",
-    )
-
-    // Amplitude — animates between 0 (paused, flat) and 1 (playing, full).
-    val amplitudeTarget = if (isPlaying) 1f else 0f
-    val amplitude by animateFloatAsState(
-        targetValue = amplitudeTarget,
-        animationSpec = tween(durationMillis = 600, easing = LinearEasing),
-        label = "amplitude",
-    )
-
-    val activeColor = MaterialTheme.colorScheme.onBackground
-    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .onSizeChanged { size: IntSize -> trackWidthPx = size.width.toFloat().coerceAtLeast(1f) }
-                .pointerInput(durationMs) {
-                    detectTapGestures { offset ->
-                        if (durationMs > 0) {
-                            val frac = (offset.x / trackWidthPx).coerceIn(0f, 1f)
-                            onSeek((frac * durationMs).toLong())
-                        }
-                    }
-                }
-                .pointerInput(durationMs) {
-                    detectDragGestures(
-                        onDragStart = { offset: Offset ->
-                            dragProgress = (offset.x / trackWidthPx).coerceIn(0f, 1f)
-                        },
-                        onDrag = { change, _ ->
-                            dragProgress = (change.position.x / trackWidthPx).coerceIn(0f, 1f)
-                        },
-                        onDragEnd = {
-                            if (dragProgress >= 0f && durationMs > 0) {
-                                onSeek((dragProgress * durationMs).toLong())
-                            }
-                            dragProgress = -1f
-                        },
-                        onDragCancel = { dragProgress = -1f },
-                    )
-                },
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-            ) {
-                val w = size.width
-                val h = size.height
-                val midY = h / 2
-                val splitX = w * shownProgress.coerceIn(0f, 1f)
-
-                // Wave geometry
-                val maxAmplitudePx = 7f.dp.toPx()         // peak height at full amplitude
-                val knobRadiusPx = 7f.dp.toPx()           // round knob, replaces the old vertical pill
-                val mutedStrokeWidth = 2f.dp.toPx()
-                val activeStrokeWidth = 2.5f.dp.toPx()
-
-                // The wave curve, sampled left → right in 2px steps.
-                // We sum two sines of incommensurate frequencies to break the
-                // periodicity — the result looks like an organic waveform.
-                if (splitX > knobRadiusPx) {
-                    val curvePath = androidx.compose.ui.graphics.Path()
-                    val step = 2f
-                    var x = 0f
-                    val pathEnd = splitX - knobRadiusPx  // stop before the knob to keep it visually clean
-
-                    val freq1 = 6f * kotlin.math.PI.toFloat() / w
-                    val freq2 = 13f * kotlin.math.PI.toFloat() / w
-
-                    curvePath.moveTo(0f, midY)
-                    while (x <= pathEnd) {
-                        // Two sines, summed and normalised. Phase scrolls the
-                        // shape leftward over time.
-                        val s1 = kotlin.math.sin(x * freq1 + phase)
-                        val s2 = kotlin.math.sin(x * freq2 - phase * 0.6f) * 0.5f
-                        val y = midY + (s1 + s2) * 0.7f * maxAmplitudePx * amplitude
-                        curvePath.lineTo(x, y)
-                        x += step
-                    }
-                    drawPath(
-                        path = curvePath,
-                        color = activeColor,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = activeStrokeWidth,
-                            cap = StrokeCap.Round,
-                            join = androidx.compose.ui.graphics.StrokeJoin.Round,
-                        ),
-                    )
-                }
-
-                // Thin muted track on the unplayed side — starts after the knob.
-                val unplayedStart = splitX + knobRadiusPx
-                if (unplayedStart < w) {
-                    drawLine(
-                        color = mutedColor,
-                        start = Offset(unplayedStart, midY),
-                        end = Offset(w, midY),
-                        strokeWidth = mutedStrokeWidth,
-                        cap = StrokeCap.Round,
-                    )
-                }
-
-                // Circular knob at the playhead.
-                drawCircle(
-                    color = activeColor,
-                    radius = knobRadiusPx,
-                    center = Offset(splitX, midY),
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = formatDuration(
-                    if (dragProgress >= 0f) (dragProgress * durationMs).toLong() else positionMs
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                text = formatDuration(durationMs),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
-}
-
-*/
 @Composable
 private fun BottomAction(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val tint = if (active) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
@@ -806,12 +796,12 @@ private fun BottomAction(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = tint,
             modifier = Modifier.size(20.dp),
         )
         Text(
             text = label,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = tint,
             style = MaterialTheme.typography.labelMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -819,153 +809,38 @@ private fun BottomAction(
     }
 }
 
-/**
- * Lyrics dialog. Fetches synced or plain lyrics from the LyricsRepository
- * (LRCLIB-backed, cached in Room). When a synced version is available, the
- * current line is highlighted based on playback position.
- *
- * Synced lyrics are stored in LRC format (`[mm:ss.ff] line text`). We parse
- * once on first render, then the current-line lookup is a binary-search-
- * grade operation against [positionMs], which is cheap enough to do every
- * 500ms tick.
- */
 @Composable
-private fun LyricsDialog(
-    song: Song,
+private fun SyncedLyricsBody(
+    lrcText: String,
     positionMs: Long,
-    onDismiss: () -> Unit,
+    maxHeight: androidx.compose.ui.unit.Dp,
 ) {
-    val repo = remember { PulseApplication.get().lyricsRepository }
-
-    val result by produceState<LyricsResult?>(initialValue = null, song.id) {
-        value = repo.lyricsFor(song)
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = song.title,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        text = {
-            Column {
-                when (val r = result) {
-                    null -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            CircularProgressIndicator(
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = "Looking for lyrics…",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    }
-                    is LyricsResult.Found -> {
-                        if (r.synced) {
-                            SyncedLyricsBody(lrcText = r.text, positionMs = positionMs)
-                        } else {
-                            // Plain text — scrollable column, no highlighting
-                            val scroll = rememberScrollState()
-                            Column(
-                                modifier = Modifier
-                                    .heightIn(max = 360.dp)
-                                    .verticalScroll(scroll),
-                            ) {
-                                Text(
-                                    text = r.text,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                        }
-                    }
-                    is LyricsResult.NotFound -> {
-                        Text(
-                            text = "We didn't find lyrics for this one :(",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Text(
-                            text = "Lyrics come from LRCLIB — a free community database. If this track isn't there yet, you can drop a matching .lrc file next to the audio file in your PulseApp folder (feature coming soon).",
-                            color = PulseTheme.colors.textDim,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
-                    }
-                    is LyricsResult.Error -> {
-                        Text(
-                            text = r.message,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close", color = MaterialTheme.colorScheme.onBackground)
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.surface,
-    )
-}
-
-/**
- * Renders synced LRC lyrics with the line corresponding to [positionMs]
- * highlighted. Auto-scrolls so the current line stays near the center
- * of the visible area.
- */
-@Composable
-private fun SyncedLyricsBody(lrcText: String, positionMs: Long) {
-    val lines = remember(lrcText) { com.pulse.music.lyrics.parseLrc(lrcText) }
+    val lines = remember(lrcText) { parseLrc(lrcText) }
     if (lines.isEmpty()) {
         Text(
-            text = "We have lyrics for this song but they couldn't be parsed.",
+            text = "These lyrics could not be parsed.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
         return
     }
 
-    // Find the active line — the last line whose timestamp has passed.
-    val activeIndex = remember(positionMs, lines) {
-        var found = -1
-        for (i in lines.indices) {
-            if (lines[i].timestampMs <= positionMs) found = i
-            else break
-        }
-        found.coerceAtLeast(0)
-    }
-
+    val activeIndex = remember(positionMs, lines) { activeLyricsIndex(lines, positionMs) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(activeIndex) {
-        // Keep the active line roughly centered. Offset by a few items so
-        // the user sees upcoming lyrics, not just what's already been sung.
         val target = (activeIndex - 2).coerceAtLeast(0)
         listState.animateScrollToItem(target)
     }
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.heightIn(max = 360.dp),
+        modifier = Modifier.heightIn(max = maxHeight),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(lines.size) { i ->
-            val line = lines[i]
-            val isActive = i == activeIndex
+        items(lines.size) { index ->
+            val line = lines[index]
+            val isActive = index == activeIndex
             Text(
                 text = line.text,
                 color = if (isActive) MaterialTheme.colorScheme.onBackground
@@ -976,4 +851,16 @@ private fun SyncedLyricsBody(lrcText: String, positionMs: Long) {
             )
         }
     }
+}
+
+private fun activeLyricsIndex(lines: List<LrcLine>, positionMs: Long): Int {
+    var found = -1
+    for (index in lines.indices) {
+        if (lines[index].timestampMs <= positionMs) {
+            found = index
+        } else {
+            break
+        }
+    }
+    return found.coerceAtLeast(0)
 }

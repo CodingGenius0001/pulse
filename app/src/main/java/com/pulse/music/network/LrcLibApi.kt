@@ -29,7 +29,7 @@ object LrcLibApi {
     )
 
     private const val BASE_URL = "https://lrclib.net/api"
-    private const val USER_AGENT = "Pulse-Android/0.5.1 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.3 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -66,6 +66,7 @@ object LrcLibApi {
         val primary = searchFallback(
             trackName = cleanTrack,
             artistName = artistName.takeIf { knownArtist },
+            albumName = albumName.takeIf { it.isKnownAlbum() },
             durationSeconds = durationSeconds,
         )
         if (primary is LrcLibResponse.Found && primary.hasContent()) {
@@ -77,6 +78,7 @@ object LrcLibApi {
                 query = "$cleanTrack ${artistName.cleanForLyricsQuery()}",
                 expectedTrack = cleanTrack,
                 expectedArtist = artistName,
+                expectedAlbum = albumName.takeIf { it.isKnownAlbum() },
                 durationSeconds = durationSeconds,
             )
             if (broad is LrcLibResponse.Found && broad.hasContent()) {
@@ -88,6 +90,7 @@ object LrcLibApi {
             query = cleanTrack,
             expectedTrack = cleanTrack,
             expectedArtist = artistName.takeIf { knownArtist },
+            expectedAlbum = albumName.takeIf { it.isKnownAlbum() },
             durationSeconds = durationSeconds,
         )
     }
@@ -109,6 +112,7 @@ object LrcLibApi {
         searchTrackInfo(
             trackName = cleanTrack,
             artistName = artistName.takeIf { knownArtist },
+            albumName = albumName.takeIf { it.isKnownAlbum() },
             durationSeconds = durationSeconds,
         )?.let { return@withContext it }
 
@@ -117,6 +121,7 @@ object LrcLibApi {
                 query = "$cleanTrack ${artistName.cleanForLyricsQuery()}",
                 expectedTrack = cleanTrack,
                 expectedArtist = artistName,
+                expectedAlbum = albumName.takeIf { it.isKnownAlbum() },
                 durationSeconds = durationSeconds,
             )?.let { return@withContext it }
         }
@@ -125,6 +130,7 @@ object LrcLibApi {
             query = cleanTrack,
             expectedTrack = cleanTrack,
             expectedArtist = artistName.takeIf { knownArtist },
+            expectedAlbum = albumName.takeIf { it.isKnownAlbum() },
             durationSeconds = durationSeconds,
         )
     }
@@ -211,6 +217,7 @@ object LrcLibApi {
     private suspend fun searchFallback(
         trackName: String,
         artistName: String?,
+        albumName: String?,
         durationSeconds: Long,
     ): LrcLibResponse {
         val builder = "$BASE_URL/search".toHttpUrl()
@@ -229,6 +236,7 @@ object LrcLibApi {
             request = request,
             expectedTrack = trackName,
             expectedArtist = artistName,
+            expectedAlbum = albumName,
             durationSeconds = durationSeconds,
         )
     }
@@ -237,6 +245,7 @@ object LrcLibApi {
         query: String,
         expectedTrack: String,
         expectedArtist: String?,
+        expectedAlbum: String?,
         durationSeconds: Long,
     ): LrcLibResponse {
         val request = Request.Builder()
@@ -250,12 +259,13 @@ object LrcLibApi {
             .get()
             .build()
 
-        return runSearchRequest(request, expectedTrack, expectedArtist, durationSeconds)
+        return runSearchRequest(request, expectedTrack, expectedArtist, expectedAlbum, durationSeconds)
     }
 
     private suspend fun searchTrackInfo(
         trackName: String,
         artistName: String?,
+        albumName: String?,
         durationSeconds: Long,
     ): TrackInfo? {
         val builder = "$BASE_URL/search".toHttpUrl()
@@ -270,13 +280,14 @@ object LrcLibApi {
             .get()
             .build()
 
-        return runSearchInfoRequest(request, trackName, artistName, durationSeconds)
+        return runSearchInfoRequest(request, trackName, artistName, albumName, durationSeconds)
     }
 
     private suspend fun queryTrackInfo(
         query: String,
         expectedTrack: String,
         expectedArtist: String?,
+        expectedAlbum: String?,
         durationSeconds: Long,
     ): TrackInfo? {
         val request = Request.Builder()
@@ -290,13 +301,14 @@ object LrcLibApi {
             .get()
             .build()
 
-        return runSearchInfoRequest(request, expectedTrack, expectedArtist, durationSeconds)
+        return runSearchInfoRequest(request, expectedTrack, expectedArtist, expectedAlbum, durationSeconds)
     }
 
     private suspend fun runSearchRequest(
         request: Request,
         expectedTrack: String,
         expectedArtist: String?,
+        expectedAlbum: String?,
         durationSeconds: Long,
     ): LrcLibResponse {
         return try {
@@ -307,7 +319,7 @@ object LrcLibApi {
                     ListSerializer(SearchResultDto.serializer()),
                     body,
                 )
-                val best = pickBestCandidate(candidates, expectedTrack, expectedArtist, durationSeconds)
+                val best = pickBestCandidate(candidates, expectedTrack, expectedArtist, expectedAlbum, durationSeconds)
                     ?: return@use LrcLibResponse.NotFound
                 best.toFound()
             }
@@ -320,6 +332,7 @@ object LrcLibApi {
         request: Request,
         expectedTrack: String,
         expectedArtist: String?,
+        expectedAlbum: String?,
         durationSeconds: Long,
     ): TrackInfo? {
         return try {
@@ -330,7 +343,7 @@ object LrcLibApi {
                     ListSerializer(SearchResultDto.serializer()),
                     body,
                 )
-                pickBestCandidate(candidates, expectedTrack, expectedArtist, durationSeconds)
+                pickBestCandidate(candidates, expectedTrack, expectedArtist, expectedAlbum, durationSeconds)
                     ?.toTrackInfo()
             }
         } catch (e: Exception) {
@@ -342,14 +355,16 @@ object LrcLibApi {
         candidates: List<SearchResultDto>,
         expectedTrack: String,
         expectedArtist: String?,
+        expectedAlbum: String?,
         durationSeconds: Long,
     ): SearchResultDto? {
         val useful = candidates.filter { it.hasContent() }
         if (useful.isEmpty()) return null
 
+        val minimumScore = if (expectedArtist.isKnownArtist()) 50 else 62
         return useful
-            .map { it to scoreCandidate(it, expectedTrack, expectedArtist, durationSeconds) }
-            .filter { (_, score) -> score >= 45 }
+            .map { it to scoreCandidate(it, expectedTrack, expectedArtist, expectedAlbum, durationSeconds) }
+            .filter { (_, score) -> score >= minimumScore }
             .maxByOrNull { (_, score) -> score }
             ?.first
     }
@@ -358,6 +373,7 @@ object LrcLibApi {
         candidate: SearchResultDto,
         expectedTrack: String,
         expectedArtist: String?,
+        expectedAlbum: String?,
         durationSeconds: Long,
     ): Int {
         val candidateTrack = (candidate.trackName ?: candidate.name.orEmpty()).cleanForLyricsQuery()
@@ -377,6 +393,18 @@ object LrcLibApi {
         }
         if (expectedArtist.isKnownArtist() && artistScore == 0) return 0
 
+        val albumScore = if (expectedAlbum?.isKnownAlbum() == true) {
+            textScore(
+                candidate.albumName.orEmpty().cleanForLyricsQuery(),
+                expectedAlbum.orEmpty().cleanForLyricsQuery(),
+                exact = 10,
+                contains = 7,
+                overlap = 4,
+            )
+        } else {
+            0
+        }
+
         val candidateDuration = candidate.duration.roundToLong()
         val tolerance = max(12L, (durationSeconds * 0.08).roundToLong())
         val diff = abs(candidateDuration - durationSeconds)
@@ -395,7 +423,7 @@ object LrcLibApi {
             else -> 0
         }
 
-        return titleScore + artistScore + durationScore + contentScore
+        return titleScore + artistScore + albumScore + durationScore + contentScore
     }
 
     private fun textScore(actual: String, expected: String, exact: Int, contains: Int, overlap: Int): Int {

@@ -26,7 +26,10 @@ class PulseApplication : Application() {
         MetadataRepository(database.metadataDao())
     }
     val lyricsRepository: LyricsRepository by lazy {
-        LyricsRepository(database.lyricsDao())
+        LyricsRepository(
+            lyricsDao = database.lyricsDao(),
+            metadataDao = database.metadataDao(),
+        )
     }
 
     val updateRepository: UpdateRepository by lazy { UpdateRepository(this) }

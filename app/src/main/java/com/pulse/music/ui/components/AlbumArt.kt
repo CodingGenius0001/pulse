@@ -63,6 +63,12 @@ fun AlbumArt(
                 .collect { value = it?.artworkUrl?.takeIf(String::isNotBlank) }
         }
 
+        LaunchedEffect(song.id, geniusArtUrl) {
+            if (geniusArtUrl.isNullOrBlank()) {
+                PulseApplication.get().metadataRepository.resolve(song)
+            }
+        }
+
         var useEmbeddedFallback by remember(song.id, geniusArtUrl) { mutableStateOf(false) }
         val model: Any = if (!geniusArtUrl.isNullOrBlank() && !useEmbeddedFallback) {
             geniusArtUrl.orEmpty()

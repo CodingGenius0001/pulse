@@ -10,6 +10,7 @@ import com.pulse.music.network.LrcLibApi
  */
 class LyricsRepository(
     private val lyricsDao: LyricsDao,
+    private val metadataDao: MetadataDao,
 ) {
 
     suspend fun lyricsFor(song: Song): LyricsResult {
@@ -18,12 +19,24 @@ class LyricsRepository(
             lyricsDao.delete(song.id)
         }
 
-        val response = LrcLibApi.fetch(
-            trackName = song.title,
-            artistName = song.artist,
-            albumName = song.album,
-            durationSeconds = song.durationMs / 1000,
-        )
+        val metadata = metadataDao.get(song.id)
+        val requests = buildLookupRequests(song, metadata)
+
+        var sawNetworkError = false
+        var response: LrcLibApi.LrcLibResponse = LrcLibApi.LrcLibResponse.NotFound
+        for (request in requests) {
+            response = LrcLibApi.fetch(
+                trackName = request.title,
+                artistName = request.artist,
+                albumName = request.album,
+                durationSeconds = song.durationMs / 1000,
+            )
+            when (response) {
+                is LrcLibApi.LrcLibResponse.Found -> break
+                LrcLibApi.LrcLibResponse.Error -> sawNetworkError = true
+                LrcLibApi.LrcLibResponse.NotFound -> Unit
+            }
+        }
 
         val record = when (response) {
             is LrcLibApi.LrcLibResponse.Found -> SongLyrics(
@@ -40,6 +53,10 @@ class LyricsRepository(
             LrcLibApi.LrcLibResponse.Error -> {
                 return LyricsResult.Error("Couldn't reach LRCLIB. Check your connection and try again.")
             }
+        }
+
+        if (record.notFound && sawNetworkError) {
+            return LyricsResult.Error("Couldn't reach LRCLIB. Check your connection and try again.")
         }
 
         if (!record.notFound) {
@@ -63,4 +80,24 @@ class LyricsRepository(
         }
         return LyricsResult.NotFound
     }
+
+    private fun buildLookupRequests(song: Song, metadata: SongMetadata?): List<LookupRequest> {
+        val primary = LookupRequest(
+            title = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title,
+            artist = metadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: song.artist,
+            album = metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: song.album,
+        )
+        val fallback = LookupRequest(
+            title = song.title,
+            artist = song.artist,
+            album = song.album,
+        )
+        return listOf(primary, fallback).distinct()
+    }
+
+    private data class LookupRequest(
+        val title: String,
+        val artist: String,
+        val album: String,
+    )
 }

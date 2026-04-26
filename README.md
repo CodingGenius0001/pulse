@@ -81,6 +81,14 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.3
+
+- Lyrics are now inline on the Now Playing screen instead of a popup: synced lines stay under the cover art and advance with playback.
+- The lyrics action now toggles an inline panel with a live preview plus a full-lyrics expansion mode.
+- LRCLIB matching is stricter and now prefers metadata-resolved title/artist/album before falling back to raw file tags.
+- The scrubber wave now uses continuous frame time so it no longer snaps back during playback, the left-side bar is gone, and the playhead pill stays white.
+- Album art resolves more aggressively when the player screen opens, which fixes cases where the cover only appeared after skipping away and back.
+
 ## What's new in v0.5.2
 
 - Now Playing now renders resolved metadata, so LRCLIB/Genius-enriched title and artist fields actually show up on the player screen.
@@ -283,6 +291,12 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.3
+- Inline live lyrics under cover art with expandable full-lyrics view
+- Stricter LRCLIB matching using resolved metadata first
+- Continuous waveform animation with a white playhead pill
+- More reliable now-playing cover-art refresh
 
 ### v0.5.2
 - Now Playing uses resolved metadata instead of raw file tags
