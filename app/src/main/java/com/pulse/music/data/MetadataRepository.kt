@@ -3,6 +3,7 @@ package com.pulse.music.data
 import com.pulse.music.network.GeniusApi
 import com.pulse.music.network.GeniusSearchOutcome
 import com.pulse.music.network.LrcLibApi
+import com.pulse.music.network.SongDetails
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -15,24 +16,41 @@ class MetadataRepository(
     private val metadataDao: MetadataDao,
 ) {
 
+    data class MatchInput(
+        val title: String,
+        val artist: String,
+        val album: String,
+    )
+
     suspend fun getCached(songId: Long): SongMetadata? = metadataDao.get(songId)
 
     fun observe(songId: Long): Flow<SongMetadata?> = metadataDao.observe(songId)
 
-    suspend fun resolve(song: Song): SongMetadata {
+    suspend fun resolve(
+        song: Song,
+        input: MatchInput = MatchInput(
+            title = song.title,
+            artist = song.artist,
+            album = song.album,
+        ),
+    ): SongMetadata {
         metadataDao.get(song.id)?.let { cached ->
-            if (!shouldRetry(song, cached)) return cached
+            if (input.matches(song) && !shouldRetry(song, cached)) return cached
             metadataDao.delete(song.id)
         }
 
-        val primaryOutcome = GeniusApi.searchForMetadata(song.title, song.artist)
+        val primaryOutcome = GeniusApi.searchForMetadata(
+            title = input.title,
+            artist = input.artist,
+            album = input.album,
+        )
         val fallbackInfo = if (primaryOutcome is GeniusSearchOutcome.Found) {
             null
         } else {
             LrcLibApi.findBestTrackInfo(
-                trackName = song.title,
-                artistName = song.artist,
-                albumName = song.album,
+                trackName = input.title,
+                artistName = input.artist,
+                albumName = input.album,
                 durationSeconds = song.durationMs / 1000,
             )
         }
@@ -43,8 +61,8 @@ class MetadataRepository(
             GeniusSearchOutcome.Unavailable -> null
         }
 
-        val retriedHit = if (primaryHit == null && fallbackInfo.hasUsefulArtistFor(song) && fallbackInfo.matchesSongContext(song)) {
-            when (val retried = GeniusApi.searchForMetadata(song.title, fallbackInfo?.artist.orEmpty())) {
+        val retriedHit = if (primaryHit == null && fallbackInfo.hasUsefulArtistFor(input) && fallbackInfo.matchesSongContext(input)) {
+            when (val retried = GeniusApi.searchForMetadata(input.title, fallbackInfo?.artist.orEmpty(), input.album)) {
                 is GeniusSearchOutcome.Found -> retried.hit
                 else -> null
             }
@@ -55,13 +73,19 @@ class MetadataRepository(
         val finalHit = retriedHit ?: primaryHit
         if (finalHit != null) {
             val details = GeniusApi.getSong(finalHit.id)
+            if (!details.matchesAlbumContext(input.album) && !input.album.isUnknownAlbum()) {
+                val fallbackOnly = fallbackInfo?.toMetadata(song.id)
+                    ?: input.toTextOnlyMetadata(song.id)
+                metadataDao.upsert(fallbackOnly)
+                return fallbackOnly
+            }
             val record = SongMetadata(
                 songId = song.id,
                 geniusId = finalHit.id,
                 geniusUrl = details?.url ?: finalHit.url,
-                resolvedTitle = details?.title ?: fallbackInfo?.title ?: finalHit.title,
-                resolvedArtist = details?.artist ?: fallbackInfo?.artist ?: finalHit.artist,
-                resolvedAlbum = details?.album ?: fallbackInfo?.album,
+                resolvedTitle = details?.title ?: fallbackInfo?.title ?: finalHit.title ?: input.title,
+                resolvedArtist = details?.artist ?: fallbackInfo?.artist ?: finalHit.artist ?: input.artist,
+                resolvedAlbum = details?.album ?: fallbackInfo?.album ?: input.album.takeIf { it.isNotBlank() },
                 artworkUrl = details?.artworkUrl ?: finalHit.artworkUrl,
                 releaseDate = details?.releaseDate,
             )
@@ -70,22 +94,25 @@ class MetadataRepository(
         }
 
         if (fallbackInfo != null) {
-            val record = SongMetadata(
-                songId = song.id,
-                resolvedTitle = fallbackInfo.title.takeIf { it.isNotBlank() },
-                resolvedArtist = fallbackInfo.artist.takeIf { !it.isNullOrBlank() },
-                resolvedAlbum = fallbackInfo.album.takeIf { !it.isNullOrBlank() },
-            )
+            val record = fallbackInfo.toMetadata(song.id)
             metadataDao.upsert(record)
             return record
         }
 
         return when (primaryOutcome) {
-            GeniusSearchOutcome.Unavailable -> SongMetadata(songId = song.id)
+            GeniusSearchOutcome.Unavailable -> {
+                if (input.matches(song)) {
+                    SongMetadata(songId = song.id)
+                } else {
+                    val textOnly = input.toTextOnlyMetadata(song.id)
+                    metadataDao.upsert(textOnly)
+                    textOnly
+                }
+            }
             else -> {
-                val empty = SongMetadata(songId = song.id)
-                metadataDao.upsert(empty)
-                empty
+                val textOnly = input.toTextOnlyMetadata(song.id)
+                metadataDao.upsert(textOnly)
+                textOnly
             }
         }
     }
@@ -106,26 +133,65 @@ class MetadataRepository(
         return song.artist.isUnknownArtist()
     }
 
-    private fun LrcLibApi.TrackInfo?.hasUsefulArtistFor(song: Song): Boolean =
+    suspend fun correctMatch(song: Song, title: String, artist: String, album: String): SongMetadata {
+        metadataDao.delete(song.id)
+        return resolve(
+            song = song,
+            input = MatchInput(
+                title = title.trim().ifBlank { song.title },
+                artist = artist.trim().ifBlank { song.artist },
+                album = album.trim().ifBlank { song.album },
+            ),
+        )
+    }
+
+    private fun LrcLibApi.TrackInfo?.hasUsefulArtistFor(input: MatchInput): Boolean =
         this != null &&
             !artist.isNullOrBlank() &&
             !artist.isUnknownArtist() &&
-            (song.artist.isUnknownArtist() || !artist.equals(song.artist, ignoreCase = true))
+            (input.artist.isUnknownArtist() || !artist.equals(input.artist, ignoreCase = true))
 
-    private fun LrcLibApi.TrackInfo?.matchesSongContext(song: Song): Boolean {
+    private fun LrcLibApi.TrackInfo?.matchesSongContext(input: MatchInput): Boolean {
         if (this == null) return false
 
-        val titleMatches = title.cleanKey() == song.title.cleanKey()
+        val titleMatches = title.cleanKey() == input.title.cleanKey()
         if (!titleMatches) return false
 
-        val albumTrusted = song.album.isUnknownAlbum() || album.cleanKey().isNotBlank() && album.cleanKey() == song.album.cleanKey()
+        val albumTrusted = input.album.isUnknownAlbum() || album.cleanKey().isNotBlank() && album.cleanKey() == input.album.cleanKey()
         if (!albumTrusted) return false
 
-        if (!song.artist.isUnknownArtist()) {
-            return artist.cleanKey() == song.artist.cleanKey()
+        if (!input.artist.isUnknownArtist()) {
+            return artist.cleanKey() == input.artist.cleanKey()
         }
 
         return !artist.isNullOrBlank() && !artist.isUnknownArtist()
+    }
+
+    private fun LrcLibApi.TrackInfo.toMetadata(songId: Long): SongMetadata =
+        SongMetadata(
+            songId = songId,
+            resolvedTitle = title.takeIf { it.isNotBlank() },
+            resolvedArtist = artist.takeIf { !it.isNullOrBlank() },
+            resolvedAlbum = album.takeIf { !it.isNullOrBlank() },
+        )
+
+    private fun MatchInput.matches(song: Song): Boolean =
+        title == song.title && artist == song.artist && album == song.album
+
+    private fun MatchInput.toTextOnlyMetadata(songId: Long): SongMetadata =
+        SongMetadata(
+            songId = songId,
+            resolvedTitle = title.takeIf { it.isNotBlank() },
+            resolvedArtist = artist.takeIf { it.isNotBlank() },
+            resolvedAlbum = album.takeIf { it.isNotBlank() },
+        )
+
+    private fun SongDetails?.matchesAlbumContext(expectedAlbum: String): Boolean {
+        if (expectedAlbum.isUnknownAlbum()) return true
+        val actual = this?.album.cleanKey()
+        val expected = expectedAlbum.cleanKey()
+        if (actual.isBlank() || expected.isBlank()) return true
+        return actual == expected
     }
 
     private fun String?.isUnknownArtist(): Boolean =

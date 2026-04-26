@@ -56,7 +56,11 @@ class UpdateViewModel(
     fun installUpdate() {
         val current = _state.value
         if (current !is UpdateState.Ready) return
-        repository.launchInstall(current.file)
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
+            repository.prepareInstall(current.info)
+            repository.launchInstall(current.file)
+        }
     }
 
     /**

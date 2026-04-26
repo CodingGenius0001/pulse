@@ -81,6 +81,13 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.8
+
+- The active artwork now drives the entire accent system while a song is playing, so buttons, pills, highlights, and emphasis colors shift toward the album's dominant hue instead of staying locked to beige/gold.
+- After an in-app update installs, Pulse now shows the latest bundled changelog on the next launch so users can immediately see what changed in that build.
+- Now Playing adds a manual "Fix metadata / lyrics" flow for bad matches: you can correct title, artist, or album and force a new artwork + lyrics lookup.
+- User playlists are now properly manageable: tap to play, edit to open details, rename, delete, add songs with search, and remove songs from inside the playlist detail view.
+
 ## What's new in v0.5.3
 
 - Lyrics are now inline on the Now Playing screen instead of a popup: synced lines stay under the cover art and advance with playback.
@@ -291,6 +298,12 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.8
+- Dynamic artwork-driven accent theme across controls, pills, and buttons while music is active
+- Post-update changelog dialog on next app launch after install
+- Manual metadata and lyrics correction flow from Now Playing
+- Playlists can now play, rename, delete, and add songs through a searchable picker
 
 ### v0.5.3
 - Inline live lyrics under cover art with expandable full-lyrics view

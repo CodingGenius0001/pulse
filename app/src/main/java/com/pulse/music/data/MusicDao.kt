@@ -55,6 +55,12 @@ interface MusicDao {
     @Query("SELECT * FROM playlists WHERE id = :id LIMIT 1")
     suspend fun getPlaylist(id: Long): Playlist?
 
+    @Query("UPDATE playlists SET name = :name WHERE id = :playlistId")
+    suspend fun renamePlaylist(playlistId: Long, name: String)
+
+    @Query("DELETE FROM playlists WHERE id = :playlistId")
+    suspend fun deletePlaylist(playlistId: Long)
+
     @Query("SELECT * FROM playlists WHERE systemType = :type LIMIT 1")
     suspend fun getSystemPlaylist(type: String): Playlist?
 
@@ -77,6 +83,20 @@ interface MusicDao {
         """
     )
     fun observeSongsInPlaylist(playlistId: Long): Flow<List<Song>>
+
+    @Query(
+        """
+        SELECT songs.* FROM songs
+        INNER JOIN playlist_song_cross_ref
+            ON songs.id = playlist_song_cross_ref.songId
+        WHERE playlist_song_cross_ref.playlistId = :playlistId
+        ORDER BY playlist_song_cross_ref.addedAt DESC
+        """
+    )
+    suspend fun getSongsInPlaylist(playlistId: Long): List<Song>
+
+    @Query("SELECT COUNT(*) FROM playlist_song_cross_ref WHERE playlistId = :playlistId")
+    suspend fun getPlaylistSongCount(playlistId: Long): Int
 
     /**
      * For building playlist thumbnails: grab album art from the 4 most recent songs.

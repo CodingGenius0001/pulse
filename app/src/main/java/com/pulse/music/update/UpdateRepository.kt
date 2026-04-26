@@ -5,8 +5,10 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.pulse.music.BuildConfig
+import com.pulse.music.data.PendingUpdateInfo
 import com.pulse.music.network.HttpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -50,6 +52,12 @@ sealed interface UpdateState {
  * its own Flow is simpler than fighting state-machine reentrance.
  */
 class UpdateRepository(private val context: Context) {
+
+    data class PendingChangelog(
+        val versionName: String,
+        val buildNumber: Int,
+        val body: String,
+    )
 
     /**
      * Hits the GitHub API, compares the release's build number to the one
@@ -179,4 +187,58 @@ class UpdateRepository(private val context: Context) {
         }
         context.startActivity(intent)
     }
+
+    suspend fun prepareInstall(info: UpdateInfo) {
+        PulseApplicationHolder.preferences(context).setPendingUpdateInfo(
+            PendingUpdateInfo(
+                buildNumber = info.buildNumber,
+                versionName = parseVersionName(info.releaseNotes),
+                releaseNotes = info.releaseNotes,
+            ),
+        )
+    }
+
+    suspend fun pendingChangelogForCurrentInstall(): PendingChangelog? {
+        val pending = PulseApplicationHolder.preferences(context).pendingUpdateInfo.first() ?: return null
+        if (pending.buildNumber <= 0 || BuildConfig.BUILD_NUMBER < pending.buildNumber) return null
+
+        val body = extractChangelogSection(BuildConfig.VERSION_NAME)
+            ?: pending.releaseNotes.takeIf { it.isNotBlank() }
+            ?: return null
+
+        return PendingChangelog(
+            versionName = BuildConfig.VERSION_NAME,
+            buildNumber = pending.buildNumber,
+            body = body.trim(),
+        )
+    }
+
+    suspend fun clearPendingChangelog() {
+        PulseApplicationHolder.preferences(context).clearPendingUpdateInfo()
+    }
+
+    private fun extractChangelogSection(versionName: String): String? {
+        val readme = try {
+            context.assets.open("README.md").bufferedReader().use { it.readText() }
+        } catch (_: Exception) {
+            return null
+        }
+        val marker = "### v$versionName"
+        val start = readme.indexOf(marker)
+        if (start < 0) return null
+        val afterHeader = readme.indexOf('\n', start).takeIf { it >= 0 } ?: return null
+        val end = readme.indexOf("\n### ", afterHeader + 1).takeIf { it >= 0 } ?: readme.length
+        return readme.substring(afterHeader + 1, end).trim()
+    }
+
+    private fun parseVersionName(releaseNotes: String): String =
+        Regex("""v(\d+\.\d+\.\d+)""")
+            .find(releaseNotes)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: BuildConfig.VERSION_NAME
+}
+
+private object PulseApplicationHolder {
+    fun preferences(context: Context) = com.pulse.music.PulseApplication.get().userPreferences
 }

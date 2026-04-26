@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.gradle.api.tasks.Copy
 
 plugins {
     alias(libs.plugins.android.application)
@@ -52,8 +53,8 @@ android {
         applicationId = "com.pulse.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.5.7"
+        versionCode = 15
+        versionName = "0.5.8"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -109,11 +110,26 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(layout.buildDirectory.dir("generated/pulseAssets"))
+        }
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+val syncReadmeToAssets = tasks.register<Copy>("syncReadmeToAssets") {
+    from(rootProject.file("README.md"))
+    into(layout.buildDirectory.dir("generated/pulseAssets"))
+    rename { "README.md" }
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncReadmeToAssets)
 }
 
 dependencies {

@@ -151,6 +151,12 @@ class LibraryViewModel(
     /** Creates a new user playlist. Returns the new playlist's ID. */
     suspend fun createPlaylist(name: String): Long = repository.createPlaylist(name)
 
+    suspend fun renamePlaylist(playlistId: Long, name: String) =
+        repository.renamePlaylist(playlistId, name)
+
+    suspend fun deletePlaylist(playlistId: Long) =
+        repository.deletePlaylist(playlistId)
+
     suspend fun addSongToPlaylist(playlistId: Long, songId: Long) =
         repository.addSongToPlaylist(playlistId, songId)
 
@@ -167,6 +173,12 @@ class LibraryViewModel(
      */
     suspend fun getPlaylistThumbnailArt(playlistId: Long): List<Song> =
         repository.getThumbnailSongs(playlistId)
+
+    suspend fun getSongsInPlaylist(playlistId: Long): List<Song> =
+        repository.getSongsInPlaylist(playlistId)
+
+    suspend fun getPlaylistSongCount(playlistId: Long): Int =
+        repository.getPlaylistSongCount(playlistId)
 
     private fun <T> Flow<T>.stateInEager(initial: T): StateFlow<T> =
         stateIn(viewModelScope, SharingStarted.Eagerly, initial)

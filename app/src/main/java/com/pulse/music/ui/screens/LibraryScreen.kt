@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -84,8 +85,9 @@ fun LibraryScreen(
 
     val scope = rememberCoroutineScope()
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
-    var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var selectedPlaylistId by remember { mutableStateOf<Long?>(null) }
     var selectedFilter by remember { mutableStateOf(LibraryFilter.Playlists) }
+    val selectedPlaylist = playlists.firstOrNull { it.id == selectedPlaylistId }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
@@ -160,7 +162,17 @@ fun LibraryScreen(
                         UserPlaylistRow(
                             playlist = playlist,
                             vm = vm,
-                            onClick = { selectedPlaylist = playlist },
+                            onPlay = {
+                                scope.launch {
+                                    val songs = vm.getSongsInPlaylist(playlist.id)
+                                    if (songs.isEmpty()) {
+                                        selectedPlaylistId = playlist.id
+                                    } else {
+                                        onSongTap(songs, 0)
+                                    }
+                                }
+                            },
+                            onEdit = { selectedPlaylistId = playlist.id },
                         )
                     }
                     if (playlists.none { it.systemType == null }) {
@@ -220,8 +232,11 @@ fun LibraryScreen(
             playlist = playlist,
             playlistSongs = playlistSongs,
             allSongs = allSongs,
-            onDismiss = { selectedPlaylist = null },
+            onDismiss = { selectedPlaylistId = null },
             onSongTap = onSongTap,
+            onPlayPlaylist = { songs -> onSongTap(songs, 0) },
+            onRenamePlaylist = { name -> vm.renamePlaylist(playlist.id, name) },
+            onDeletePlaylist = { vm.deletePlaylist(playlist.id) },
             onAddSong = { songId -> vm.addSongToPlaylist(playlist.id, songId) },
             onRemoveSong = { songId -> vm.removeSongFromPlaylist(playlist.id, songId) },
             launchSuspend = { block -> scope.launch { block() } },
@@ -323,10 +338,14 @@ private fun SystemPlaylistRow(
 private fun UserPlaylistRow(
     playlist: Playlist,
     vm: LibraryViewModel,
-    onClick: () -> Unit,
+    onPlay: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val thumbnailSongs by produceState<List<Song>>(initialValue = emptyList(), playlist.id) {
         value = vm.getPlaylistThumbnailArt(playlist.id)
+    }
+    val songCount by produceState(initialValue = 0, playlist.id) {
+        value = vm.getPlaylistSongCount(playlist.id)
     }
 
     Row(
@@ -334,7 +353,7 @@ private fun UserPlaylistRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(PulseTheme.colors.surfaceElevated)
-            .clickable(onClick = onClick)
+            .clickable(onClick = onPlay)
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -354,12 +373,20 @@ private fun UserPlaylistRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${thumbnailSongs.size} songs",
+                text = "$songCount songs",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        Text(text = "Edit", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = "Edit",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onEdit)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+        )
     }
 }
 

@@ -9,6 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -54,7 +55,10 @@ private val LightColorScheme = lightColorScheme(
  * CompositionLocal so screens can stay reactive.
  */
 @Composable
-fun PulseTheme(content: @Composable () -> Unit) {
+fun PulseTheme(
+    accentColor: Color? = null,
+    content: @Composable () -> Unit,
+) {
     val prefs = PulseApplication.get().userPreferences
     val themePref by prefs.theme.collectAsStateWithLifecycle(initialValue = ThemePreference.Dark)
     val systemDark = isSystemInDarkTheme()
@@ -65,8 +69,10 @@ fun PulseTheme(content: @Composable () -> Unit) {
         ThemePreference.Auto -> systemDark
     }
 
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-    val pulseTokens = if (darkTheme) DarkPulseColors else LightPulseColors
+    val colorScheme = (if (darkTheme) DarkColorScheme else LightColorScheme).withAccent(accentColor, darkTheme)
+    val pulseTokens = (if (darkTheme) DarkPulseColors else LightPulseColors).let { base ->
+        accentColor?.let { base.withAccent(it, darkTheme) } ?: base
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -89,3 +95,14 @@ fun PulseTheme(content: @Composable () -> Unit) {
         )
     }
 }
+
+private fun androidx.compose.material3.ColorScheme.withAccent(accentColor: Color?, darkTheme: Boolean) =
+    accentColor?.let { accent ->
+        val primaryAccent = if (darkTheme) lerp(accent.copy(alpha = 1f), Color.White, 0.24f) else lerp(accent.copy(alpha = 1f), Color.Black, 0.18f)
+        val secondaryAccent = if (darkTheme) lerp(primaryAccent, Color(0xFFE7B28A), 0.36f) else lerp(primaryAccent, Color(0xFF7E5A39), 0.42f)
+        copy(
+            primary = primaryAccent,
+            secondary = secondaryAccent,
+            tertiary = lerp(primaryAccent, if (darkTheme) Color(0xFF8D8B74) else Color(0xFF7C8064), 0.55f),
+        )
+    } ?: this

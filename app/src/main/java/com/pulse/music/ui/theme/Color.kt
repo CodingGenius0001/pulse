@@ -8,6 +8,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.lerp
 
 /**
  * Pulse semantic color tokens. Provided by a CompositionLocal that
@@ -77,6 +78,30 @@ internal val LocalPulseBackgroundTint = compositionLocalOf { Color.Unspecified }
 
 internal val DarkPulseColors = DarkTokens
 internal val LightPulseColors = LightTokens
+
+internal fun PulseColorTokens.withAccent(accent: Color, darkTheme: Boolean): PulseColorTokens {
+    val tunedAccent = accent.normalizeAccent(darkTheme)
+    val companion = lerp(
+        tunedAccent,
+        if (darkTheme) Color(0xFFE7B28A) else Color(0xFF7E5A39),
+        if (darkTheme) 0.36f else 0.42f,
+    )
+    val emphasis = if (darkTheme) {
+        lerp(tunedAccent, Color(0xFFF4E9D8), 0.62f)
+    } else {
+        lerp(tunedAccent, Color(0xFF2E2217), 0.54f)
+    }
+    return copy(
+        accentViolet = tunedAccent,
+        accentPink = companion,
+        accentCream = emphasis,
+    )
+}
+
+private fun Color.normalizeAccent(darkTheme: Boolean): Color {
+    val solid = copy(alpha = 1f)
+    return if (darkTheme) lerp(solid, Color.White, 0.24f) else lerp(solid, Color.Black, 0.18f)
+}
 
 /**
  * Entry point for consuming theme colors. Usage:

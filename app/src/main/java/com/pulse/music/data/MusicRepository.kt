@@ -104,6 +104,14 @@ class MusicRepository(
     suspend fun createPlaylist(name: String): Long =
         dao.insertPlaylist(Playlist(name = name))
 
+    suspend fun renamePlaylist(playlistId: Long, name: String) {
+        dao.renamePlaylist(playlistId, name)
+    }
+
+    suspend fun deletePlaylist(playlistId: Long) {
+        dao.deletePlaylist(playlistId)
+    }
+
     suspend fun addSongToPlaylist(playlistId: Long, songId: Long) {
         dao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId))
     }
@@ -114,6 +122,12 @@ class MusicRepository(
 
     suspend fun playlistContainsSong(playlistId: Long, songId: Long): Boolean =
         dao.playlistContainsSong(playlistId, songId) > 0
+
+    suspend fun getSongsInPlaylist(playlistId: Long): List<Song> =
+        dao.getSongsInPlaylist(playlistId)
+
+    suspend fun getPlaylistSongCount(playlistId: Long): Int =
+        dao.getPlaylistSongCount(playlistId)
 
     suspend fun getThumbnailSongs(playlistId: Long): List<Song> =
         dao.getTopFourSongsForPlaylist(playlistId)

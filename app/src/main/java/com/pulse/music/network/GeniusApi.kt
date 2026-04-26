@@ -107,7 +107,11 @@ object GeniusApi {
      * avoid permanently caching misses when the token is absent or the network
      * failed, while still caching real "Genius has no match" results.
      */
-    suspend fun searchForMetadata(title: String, artist: String): GeniusSearchOutcome = withContext(Dispatchers.IO) {
+    suspend fun searchForMetadata(
+        title: String,
+        artist: String,
+        album: String = "",
+    ): GeniusSearchOutcome = withContext(Dispatchers.IO) {
         val token = BuildConfig.GENIUS_ACCESS_TOKEN
         if (token.isBlank()) return@withContext GeniusSearchOutcome.Unavailable
 
@@ -115,7 +119,12 @@ object GeniusApi {
         if (cleanTitle.isBlank()) return@withContext GeniusSearchOutcome.NoMatch
 
         val knownArtist = artist.isKnownArtist()
-        val query = if (knownArtist) "$cleanTitle ${artist.cleanSearchText()}" else cleanTitle
+        val knownAlbum = album.isKnownAlbum()
+        val query = buildString {
+            append(cleanTitle)
+            if (knownArtist) append(" ").append(artist.cleanSearchText())
+            if (knownAlbum) append(" ").append(album.cleanSearchText())
+        }.trim()
         val url = "$BASE_URL/search".toHttpUrl()
             .newBuilder()
             .addQueryParameter("q", query)
@@ -232,6 +241,9 @@ data class SongDetails(
 
 private fun String.isKnownArtist(): Boolean =
     isNotBlank() && !equals("Unknown artist", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
+
+private fun String.isKnownAlbum(): Boolean =
+    isNotBlank() && !equals("Unknown album", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
 
 private fun String.cleanSearchText(): String =
     lowercase()

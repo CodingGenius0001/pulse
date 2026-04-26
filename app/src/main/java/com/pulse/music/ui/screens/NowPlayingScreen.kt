@@ -33,12 +33,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -51,12 +54,14 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Lyrics
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,6 +81,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -83,6 +89,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -159,6 +166,7 @@ fun NowPlayingScreen(
     var lyricsExpanded by remember(song.id) { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember(song.id) { mutableStateOf(false) }
+    var showFixMatch by remember(song.id) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -394,6 +402,20 @@ fun NowPlayingScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                text = { Text("Fix metadata / lyrics") },
+                                onClick = {
+                                    overflowOpen = false
+                                    showFixMatch = true
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Edit,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Add to playlist") },
                                 onClick = {
                                     overflowOpen = false
@@ -444,6 +466,22 @@ fun NowPlayingScreen(
                 onCreatePlaylist = { name -> libraryVm.createPlaylist(name) },
                 onAddToPlaylist = { playlistId -> libraryVm.addSongToPlaylist(playlistId, song.id) },
                 launchSuspend = { block -> scope.launch { block() } },
+            )
+        }
+
+        if (showFixMatch) {
+            FixMatchDialog(
+                initialTitle = displayTitle,
+                initialArtist = displayArtist,
+                initialAlbum = displayAlbum,
+                onDismiss = { showFixMatch = false },
+                onSave = { title, artist, album ->
+                    scope.launch {
+                        app.metadataRepository.correctMatch(song, title, artist, album)
+                        app.lyricsRepository.refresh(song)
+                        showFixMatch = false
+                    }
+                },
             )
         }
     }
@@ -862,4 +900,84 @@ private fun activeLyricsIndex(lines: List<LrcLine>, positionMs: Long): Int {
         if (lines[index].timestampMs <= positionMs) found = index else break
     }
     return found.coerceAtLeast(0)
+}
+
+@Composable
+private fun FixMatchDialog(
+    initialTitle: String,
+    initialArtist: String,
+    initialAlbum: String,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit,
+) {
+    var title by remember(initialTitle) { mutableStateOf(initialTitle) }
+    var artist by remember(initialArtist) { mutableStateOf(initialArtist) }
+    var album by remember(initialAlbum) { mutableStateOf(initialAlbum) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fix metadata and lyrics", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "If Pulse matched the wrong song, correct the title, artist, or album here and it will retry both artwork and lyrics.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                MatchField(value = title, onValueChange = { title = it.take(120) }, placeholder = "Song title")
+                MatchField(value = artist, onValueChange = { artist = it.take(120) }, placeholder = "Artist")
+                MatchField(value = album, onValueChange = { album = it.take(120) }, placeholder = "Album")
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (title.isNotBlank() && artist.isNotBlank()) {
+                        onSave(title.trim(), artist.trim(), album.trim())
+                    }
+                },
+            ) {
+                Text("Retry match", color = PulseTheme.colors.accentViolet)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
+}
+
+@Composable
+private fun MatchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        if (value.isEmpty()) {
+            Text(
+                text = placeholder,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

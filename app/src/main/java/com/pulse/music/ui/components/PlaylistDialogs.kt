@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -22,6 +23,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,83 +59,81 @@ fun AddToPlaylistDialog(
     launchSuspend: (suspend () -> Unit) -> Unit,
 ) {
     var newPlaylistName by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
+    val visiblePlaylists = remember(playlists, searchQuery) {
+        val query = searchQuery.trim().lowercase()
+        if (query.isBlank()) playlists else playlists.filter { it.name.lowercase().contains(query) }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add to playlist", color = MaterialTheme.colorScheme.onBackground) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (playlists.isEmpty()) {
+                SearchField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it.take(60) },
+                    placeholder = "Search playlists",
+                )
+
+                if (visiblePlaylists.isEmpty()) {
                     Text(
-                        text = "Create your first playlist below.",
+                        text = if (playlists.isEmpty()) "Create your first playlist below." else "No playlists match that search.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 } else {
-                    playlists.forEach { playlist ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(PulseTheme.colors.surfaceElevated)
-                                .clickable {
-                                    launchSuspend {
-                                        onAddToPlaylist(playlist.id)
-                                        onDismiss()
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().height(220.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(visiblePlaylists) { playlist ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(PulseTheme.colors.surfaceElevated)
+                                    .clickable {
+                                        launchSuspend {
+                                            onAddToPlaylist(playlist.id)
+                                            onDismiss()
+                                        }
                                     }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = playlist.name,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "Add here",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                 }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = playlist.name,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = "Add here",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall,
+                                Icon(
+                                    imageVector = Icons.Filled.Add,
+                                    contentDescription = null,
+                                    tint = PulseTheme.colors.accentViolet,
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
-                            Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = null,
-                                tint = PulseTheme.colors.accentViolet,
-                                modifier = Modifier.size(18.dp),
-                            )
                         }
                     }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(PulseTheme.colors.surfaceElevated)
-                        .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(18.dp))
-                        .padding(14.dp),
-                ) {
-                    if (newPlaylistName.isEmpty()) {
-                        Text(
-                            text = "New playlist name",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
-                    BasicTextField(
-                        value = newPlaylistName,
-                        onValueChange = { newPlaylistName = it.take(60) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                SearchField(
+                    value = newPlaylistName,
+                    onValueChange = { newPlaylistName = it.take(60) },
+                    placeholder = "New playlist name",
+                    leadingIcon = null,
+                )
             }
         },
         confirmButton = {
@@ -165,11 +168,16 @@ fun PlaylistDetailDialog(
     allSongs: List<Song>,
     onDismiss: () -> Unit,
     onSongTap: (List<Song>, Int) -> Unit,
+    onPlayPlaylist: (List<Song>) -> Unit,
+    onRenamePlaylist: suspend (String) -> Unit,
+    onDeletePlaylist: suspend () -> Unit,
     onAddSong: suspend (Long) -> Unit,
     onRemoveSong: suspend (Long) -> Unit,
     launchSuspend: (suspend () -> Unit) -> Unit,
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val playlistSongIds = remember(playlistSongs) { playlistSongs.map { it.id }.toSet() }
     val addableSongs = remember(allSongs, playlistSongIds) { allSongs.filterNot { it.id in playlistSongIds } }
 
@@ -215,24 +223,41 @@ fun PlaylistDetailDialog(
             Spacer(Modifier.height(12.dp))
 
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(PulseTheme.colors.accentCream)
-                    .clickable { showPicker = true }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = null,
-                    tint = PulseTheme.colors.onPrimary,
-                    modifier = Modifier.size(16.dp),
+                ActionChip(
+                    modifier = Modifier.weight(1f),
+                    label = "Play",
+                    icon = Icons.Filled.PlayArrow,
+                    emphasized = true,
+                    onClick = { if (playlistSongs.isNotEmpty()) onPlayPlaylist(playlistSongs) },
                 )
-                Text(
-                    text = "Add songs",
-                    color = PulseTheme.colors.onPrimary,
-                    style = MaterialTheme.typography.labelLarge,
+                ActionChip(
+                    modifier = Modifier.weight(1f),
+                    label = "Add songs",
+                    icon = Icons.Filled.Add,
+                    onClick = { showPicker = true },
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ActionChip(
+                    modifier = Modifier.weight(1f),
+                    label = "Rename",
+                    icon = Icons.Filled.Edit,
+                    onClick = { showRename = true },
+                )
+                ActionChip(
+                    modifier = Modifier.weight(1f),
+                    label = "Delete",
+                    icon = Icons.Filled.DeleteOutline,
+                    onClick = { showDeleteConfirm = true },
                 )
             }
 
@@ -320,6 +345,29 @@ fun PlaylistDetailDialog(
             },
         )
     }
+
+    if (showRename) {
+        RenamePlaylistDialog(
+            currentName = playlist.name,
+            onDismiss = { showRename = false },
+            onSave = { name ->
+                launchSuspend { onRenamePlaylist(name) }
+                showRename = false
+            },
+        )
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmDeletePlaylistDialog(
+            playlistName = playlist.name,
+            onDismiss = { showDeleteConfirm = false },
+            onDelete = {
+                launchSuspend { onDeletePlaylist() }
+                showDeleteConfirm = false
+                onDismiss()
+            },
+        )
+    }
 }
 
 @Composable
@@ -329,6 +377,20 @@ private fun SongPickerDialog(
     onDismiss: () -> Unit,
     onAddSong: (Song) -> Unit,
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredSongs = remember(songs, searchQuery) {
+        val query = searchQuery.trim().lowercase()
+        if (query.isBlank()) {
+            songs
+        } else {
+            songs.filter { song ->
+                song.title.lowercase().contains(query) ||
+                    song.artist.lowercase().contains(query) ||
+                    song.album.lowercase().contains(query)
+            }
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -364,7 +426,15 @@ private fun SongPickerDialog(
 
             Spacer(Modifier.height(12.dp))
 
-            if (songs.isEmpty()) {
+            SearchField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it.take(60) },
+                placeholder = "Search songs, artists, albums",
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            if (filteredSongs.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -374,14 +444,14 @@ private fun SongPickerDialog(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "Everything in your library is already here.",
+                        text = if (songs.isEmpty()) "Everything in your library is already here." else "No songs match that search.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(songs) { song ->
+                    items(filteredSongs) { song ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -402,7 +472,7 @@ private fun SongPickerDialog(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = song.artist,
+                                    text = "${song.artist} - ${song.album}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,
@@ -428,5 +498,145 @@ private fun SongPickerDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RenamePlaylistDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var input by remember(currentName) { mutableStateOf(currentName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename playlist", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            SearchField(
+                value = input,
+                onValueChange = { input = it.take(60) },
+                placeholder = "Playlist name",
+                leadingIcon = null,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { input.trim().takeIf { it.isNotEmpty() }?.let(onSave) }) {
+                Text("Save", color = PulseTheme.colors.accentViolet)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
+}
+
+@Composable
+private fun ConfirmDeletePlaylistDialog(
+    playlistName: String,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete playlist", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Text(
+                text = "Delete \"$playlistName\"? This removes the playlist, not the songs from your library.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDelete) {
+                Text("Delete", color = PulseTheme.colors.accentPink)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
+}
+
+@Composable
+private fun SearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = Icons.Filled.Search,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        leadingIcon?.let {
+            Icon(
+                imageVector = it,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionChip(
+    modifier: Modifier = Modifier,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    emphasized: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (emphasized) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceElevated)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (emphasized) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            text = label,
+            color = if (emphasized) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
