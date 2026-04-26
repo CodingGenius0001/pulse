@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -118,6 +118,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
@@ -167,6 +168,7 @@ fun NowPlayingScreen(
     var overflowOpen by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember(song.id) { mutableStateOf(false) }
     var showFixMatch by remember(song.id) { mutableStateOf(false) }
+    var matchRefreshState by remember(song.id) { mutableStateOf<MatchRefreshState?>(null) }
 
     Box(
         modifier = Modifier
@@ -476,13 +478,46 @@ fun NowPlayingScreen(
                 initialAlbum = displayAlbum,
                 onDismiss = { showFixMatch = false },
                 onSave = { title, artist, album ->
+                    showFixMatch = false
+                    matchRefreshState = MatchRefreshState.Loading
                     scope.launch {
-                        app.metadataRepository.correctMatch(song, title, artist, album)
-                        app.lyricsRepository.refresh(song)
-                        showFixMatch = false
+                        runCatching {
+                            val refreshedMetadata = app.metadataRepository.correctMatch(song, title, artist, album)
+                            val refreshedLyrics = app.lyricsRepository.refresh(song)
+                            refreshedMetadata to refreshedLyrics
+                        }.onSuccess { (refreshedMetadata, refreshedLyrics) ->
+                            val message = when {
+                                !refreshedMetadata.artworkUrl.isNullOrBlank() ->
+                                    "Matched the song and refreshed artwork${lyricsSuffix(refreshedLyrics)}."
+                                refreshedMetadata.geniusId != null ->
+                                    "Matched the song, but Genius did not provide album artwork${lyricsSuffix(refreshedLyrics)}."
+                                else ->
+                                    "Saved the correction, but Pulse still could not confirm a safe Genius artwork match${lyricsSuffix(refreshedLyrics)}."
+                            }
+                            matchRefreshState = MatchRefreshState.Success(message)
+                        }.onFailure { error ->
+                            matchRefreshState = MatchRefreshState.Error(
+                                error.message ?: "Couldn't refresh metadata and lyrics right now.",
+                            )
+                        }
                     }
                 },
             )
+        }
+
+        when (val refresh = matchRefreshState) {
+            MatchRefreshState.Loading -> MatchRefreshLoadingDialog()
+            is MatchRefreshState.Success -> MatchRefreshMessageDialog(
+                title = "Song updated",
+                message = refresh.message,
+                onDismiss = { matchRefreshState = null },
+            )
+            is MatchRefreshState.Error -> MatchRefreshMessageDialog(
+                title = "Update failed",
+                message = refresh.message,
+                onDismiss = { matchRefreshState = null },
+            )
+            null -> Unit
         }
     }
 }
@@ -588,7 +623,7 @@ private fun LyricsFullScreen(
                         text = songTitle,
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.headlineMedium,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -685,15 +720,16 @@ private fun SyncedLyricsBody(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        items(lines) { line ->
-            val isActive = lines.indexOf(line) == activeIndex
+        itemsIndexed(lines) { index, line ->
+            val isActive = index == activeIndex
             Text(
                 text = line.text,
-                color = if (isActive) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = if (isActive) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isActive) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = if (isActive) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
+                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
+                modifier = Modifier.padding(vertical = if (isActive) 10.dp else 2.dp),
             )
         }
     }
@@ -708,8 +744,8 @@ private fun PlainLyricsBody(text: String) {
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.bodyLarge,
-            lineHeight = MaterialTheme.typography.bodyLarge.lineHeight * 1.4f,
+            style = MaterialTheme.typography.titleLarge,
+            lineHeight = MaterialTheme.typography.titleLarge.lineHeight * 1.42f,
         )
         Spacer(Modifier.height(80.dp))
     }
@@ -788,6 +824,8 @@ private fun WaveformScrubber(
                 val trackHeight = 4.dp.toPx()
                 val pillWidth = 10.dp.toPx()
                 val pillHeight = 34.dp.toPx()
+                val tailPadding = 3.dp.toPx()
+                val crestSpan = 84.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
 
                 val rightTrackStart = pillX + pillWidth / 2f + 2.dp.toPx()
@@ -800,32 +838,73 @@ private fun WaveformScrubber(
                     )
                 }
 
-                val waveEnd = (pillX - pillWidth / 2f - 2.dp.toPx()).coerceAtLeast(0f)
+                val waveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)
                 if (waveEnd > 6f) {
-                    val path = Path()
                     val maxAmp = 7.8.dp.toPx() * amplitude
                     val step = 2.5f
+                    val travel = frameSeconds * 146f
+                    val crestStart = (waveEnd - crestSpan).coerceAtLeast(0f)
+                    val tailPath = Path()
+                    val crestPath = Path()
+                    var hasTailPoint = false
+                    var hasCrestPoint = false
+
+                    fun amplitudeAt(distanceFromPill: Float): Float {
+                        val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
+                        val crestBoost = 0.52f + 0.48f * sin(nearPill * PI.toFloat() / 2f)
+                        val tailFade = 0.78f + 0.22f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.7f)
+                        return crestBoost * tailFade
+                    }
+
                     var x = 0f
-                    path.moveTo(0f, centerY)
                     while (x <= waveEnd) {
-                        val normalized = x / waveEnd
-                        val envelope = 0.52f + 0.48f * sin(normalized * PI.toFloat())
+                        val distanceFromPill = (waveEnd - x).coerceAtLeast(0f)
+                        val sourceX = (distanceFromPill * 1.12f) - travel
                         val offset = waveParts.sumOf { part ->
-                            val angle = (normalized * part.cycles * 2f * PI.toFloat()) + (frameSeconds * part.speed * 2.1f) + part.phase
+                            val wavelength = (110f / part.cycles).coerceAtLeast(22f)
+                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * part.speed) + part.phase
                             (sin(angle) * part.amplitude).toDouble()
                         }.toFloat() / waveParts.size
-                        path.lineTo(x, centerY + (offset * maxAmp * envelope))
+                        val y = centerY + (offset * maxAmp * amplitudeAt(distanceFromPill))
+                        if (!hasTailPoint) {
+                            tailPath.moveTo(x, y)
+                            hasTailPoint = true
+                        } else {
+                            tailPath.lineTo(x, y)
+                        }
+                        if (x >= crestStart) {
+                            if (!hasCrestPoint) {
+                                crestPath.moveTo(x, y)
+                                hasCrestPoint = true
+                            } else {
+                                crestPath.lineTo(x, y)
+                            }
+                        }
                         x += step
                     }
-                    drawPath(
-                        path = path,
-                        color = waveColor,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = 3.dp.toPx(),
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round,
-                        ),
-                    )
+
+                    if (hasTailPoint) {
+                        drawPath(
+                            path = tailPath,
+                            color = waveColor.copy(alpha = 0.56f),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 2.4.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
+                        )
+                    }
+                    if (hasCrestPoint) {
+                        drawPath(
+                            path = crestPath,
+                            color = waveColor,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 3.4.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
+                        )
+                    }
                 }
 
                 drawRoundRect(
@@ -900,6 +979,70 @@ private fun activeLyricsIndex(lines: List<LrcLine>, positionMs: Long): Int {
         if (lines[index].timestampMs <= positionMs) found = index else break
     }
     return found.coerceAtLeast(0)
+}
+
+private fun lyricsSuffix(result: LyricsResult): String = when (result) {
+    is LyricsResult.Found -> " and lyrics"
+    LyricsResult.NotFound -> ", but lyrics were still not found"
+    is LyricsResult.Error -> ", but lyrics could not be refreshed"
+}
+
+private sealed interface MatchRefreshState {
+    data object Loading : MatchRefreshState
+    data class Success(val message: String) : MatchRefreshState
+    data class Error(val message: String) : MatchRefreshState
+}
+
+@Composable
+private fun MatchRefreshLoadingDialog() {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Refreshing song", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    color = PulseTheme.colors.accentViolet,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = "Looking up the corrected metadata, artwork, and lyrics.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = {},
+        containerColor = PulseTheme.colors.surface,
+    )
+}
+
+@Composable
+private fun MatchRefreshMessageDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = PulseTheme.colors.accentViolet)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
 }
 
 @Composable

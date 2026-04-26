@@ -150,22 +150,25 @@ object GeniusApi {
                 // We now require a known artist for any match.
                 if (!knownArtist) return@withContext GeniusSearchOutcome.NoMatch
 
-                val firstGoodHit = parsed.response.hits.firstOrNull { hit ->
+                val matchingHits = parsed.response.hits.filter { hit ->
                     val result = hit.result
                     val titleMatches = result.title.cleanSearchText().titleLooksLike(cleanTitle)
-                    if (!titleMatches) return@firstOrNull false
+                    if (!titleMatches) return@filter false
                     result.primaryArtist?.name?.artistLooksLike(artist) == true
-                } ?: return@withContext GeniusSearchOutcome.NoMatch
+                }.take(8)
+                if (matchingHits.isEmpty()) return@withContext GeniusSearchOutcome.NoMatch
 
-                val r = firstGoodHit.result
                 GeniusSearchOutcome.Found(
-                    SearchHit(
-                        id = r.id,
-                        url = r.url,
-                        title = r.title,
-                        artist = r.primaryArtist?.name,
-                        artworkUrl = r.songArtImageUrl,
-                    )
+                    matchingHits.map { hit ->
+                        val r = hit.result
+                        SearchHit(
+                            id = r.id,
+                            url = r.url,
+                            title = r.title,
+                            artist = r.primaryArtist?.name,
+                            artworkUrl = r.songArtImageUrl,
+                        )
+                    }
                 )
             }
         } catch (e: Exception) {
@@ -216,7 +219,7 @@ object GeniusApi {
 // ---------- Simplified public types our app actually consumes ----------
 
 sealed interface GeniusSearchOutcome {
-    data class Found(val hit: SearchHit) : GeniusSearchOutcome
+    data class Found(val hits: List<SearchHit>) : GeniusSearchOutcome
     data object NoMatch : GeniusSearchOutcome
     data object Unavailable : GeniusSearchOutcome
 }
@@ -249,7 +252,7 @@ private fun String.cleanSearchText(): String =
     lowercase()
         .replace(Regex("""\([^)]*\)|\[[^]]*]"""), " ")
         .replace(Regex("""\b(remaster(ed)?|explicit|clean|audio|official|video|lyrics?|feat\.?|ft\.?)\b"""), " ")
-        .replace(Regex("""[^a-z0-9& ]+"""), " ")
+        .replace(Regex("""[^\p{L}\p{N}& ]+"""), " ")
         .replace(Regex("""\s+"""), " ")
         .trim()
 

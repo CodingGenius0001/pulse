@@ -23,8 +23,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -86,7 +88,38 @@ fun LibraryScreen(
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
     var selectedPlaylistId by remember { mutableStateOf<Long?>(null) }
     var selectedFilter by remember { mutableStateOf(LibraryFilter.Playlists) }
+    var searchQuery by remember { mutableStateOf("") }
     val selectedPlaylist = playlists.firstOrNull { it.id == selectedPlaylistId }
+    val query = searchQuery.trim().lowercase()
+    val visiblePlaylists = remember(playlists, likedSongs, recentlyAdded, query) {
+        playlists.filter { it.systemType == null && (query.isBlank() || it.name.lowercase().contains(query)) }
+    }
+    val showLikedSongs = query.isBlank() || "liked songs".contains(query) || likedSongs.any {
+        it.title.lowercase().contains(query) || it.artist.lowercase().contains(query) || it.album.lowercase().contains(query)
+    }
+    val showRecentlyAdded = query.isBlank() || "recently added".contains(query) || recentlyAdded.any {
+        it.title.lowercase().contains(query) || it.artist.lowercase().contains(query) || it.album.lowercase().contains(query)
+    }
+    val visibleAlbums = remember(albumsGrouped, query) {
+        albumsGrouped.filter { (albumName, songs) ->
+            query.isBlank() ||
+                albumName.lowercase().contains(query) ||
+                songs.any { it.artist.lowercase().contains(query) }
+        }
+    }
+    val visibleArtists = remember(artistsGrouped, query) {
+        artistsGrouped.filter { (artistName, _) ->
+            query.isBlank() || artistName.lowercase().contains(query)
+        }
+    }
+    val visibleSongs = remember(allSongs, query) {
+        allSongs.filter { song ->
+            query.isBlank() ||
+                song.title.lowercase().contains(query) ||
+                song.artist.lowercase().contains(query) ||
+                song.album.lowercase().contains(query)
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
@@ -133,31 +166,49 @@ fun LibraryScreen(
 
         Spacer(Modifier.height(14.dp))
 
+        LibrarySearchField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it.take(60) },
+            placeholder = when (selectedFilter) {
+                LibraryFilter.Playlists -> "Search playlists"
+                LibraryFilter.Albums -> "Search albums or artists"
+                LibraryFilter.Artists -> "Search artists"
+                LibraryFilter.Songs -> "Search songs, artists, albums"
+            },
+            modifier = Modifier.padding(horizontal = 20.dp),
+        )
+
+        Spacer(Modifier.height(14.dp))
+
         LazyColumn(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (selectedFilter) {
                 LibraryFilter.Playlists -> {
-                    item {
-                        SystemPlaylistRow(
-                            title = "Liked songs",
-                            subtitle = "${likedSongs.size} tracks",
-                            gradient = listOf(PulseTheme.colors.accentPink, PulseTheme.colors.accentViolet),
-                            icon = { Icon(Icons.Filled.Favorite, null, tint = PulseTheme.colors.onPrimary, modifier = Modifier.size(20.dp)) },
-                            onClick = { if (likedSongs.isNotEmpty()) onSongTap(likedSongs, 0) },
-                        )
+                    if (showLikedSongs) {
+                        item {
+                            SystemPlaylistRow(
+                                title = "Liked songs",
+                                subtitle = "${likedSongs.size} tracks",
+                                gradient = listOf(PulseTheme.colors.accentPink, PulseTheme.colors.accentViolet),
+                                icon = { Icon(Icons.Filled.Favorite, null, tint = PulseTheme.colors.onPrimary, modifier = Modifier.size(20.dp)) },
+                                onClick = { if (likedSongs.isNotEmpty()) onSongTap(likedSongs, 0) },
+                            )
+                        }
                     }
-                    item {
-                        SystemPlaylistRow(
-                            title = "Recently added",
-                            subtitle = "${recentlyAdded.size} tracks",
-                            gradient = listOf(Color(0xFF556270), Color(0xFF8E9EAB)),
-                            icon = { Icon(Icons.Filled.History, null, tint = PulseTheme.colors.onPrimary, modifier = Modifier.size(20.dp)) },
-                            onClick = { if (recentlyAdded.isNotEmpty()) onSongTap(recentlyAdded, 0) },
-                        )
+                    if (showRecentlyAdded) {
+                        item {
+                            SystemPlaylistRow(
+                                title = "Recently added",
+                                subtitle = "${recentlyAdded.size} tracks",
+                                gradient = listOf(Color(0xFF556270), Color(0xFF8E9EAB)),
+                                icon = { Icon(Icons.Filled.History, null, tint = PulseTheme.colors.onPrimary, modifier = Modifier.size(20.dp)) },
+                                onClick = { if (recentlyAdded.isNotEmpty()) onSongTap(recentlyAdded, 0) },
+                            )
+                        }
                     }
-                    items(playlists.filter { it.systemType == null }) { playlist ->
+                    items(visiblePlaylists) { playlist ->
                         UserPlaylistRow(
                             playlist = playlist,
                             vm = vm,
@@ -174,13 +225,17 @@ fun LibraryScreen(
                             onEdit = { selectedPlaylistId = playlist.id },
                         )
                     }
-                    if (playlists.none { it.systemType == null }) {
-                        item { EmptyLibraryMessage("No user playlists yet.") }
+                    if (!showLikedSongs && !showRecentlyAdded && visiblePlaylists.isEmpty()) {
+                        item {
+                            EmptyLibraryMessage(
+                                if (query.isBlank()) "No user playlists yet." else "No playlists match that search.",
+                            )
+                        }
                     }
                 }
 
                 LibraryFilter.Albums -> {
-                    items(albumsGrouped) { (albumName, songs) ->
+                    items(visibleAlbums) { (albumName, songs) ->
                         AlbumRow(
                             albumName = albumName,
                             artist = songs.firstOrNull()?.artist.orEmpty(),
@@ -189,24 +244,33 @@ fun LibraryScreen(
                             onClick = { onSongTap(songs, 0) },
                         )
                     }
+                    if (visibleAlbums.isEmpty()) {
+                        item { EmptyLibraryMessage("No albums match that search.") }
+                    }
                 }
 
                 LibraryFilter.Artists -> {
-                    items(artistsGrouped) { (artistName, songs) ->
+                    items(visibleArtists) { (artistName, songs) ->
                         ArtistRow(
                             artist = artistName,
                             songCount = songs.size,
                             onClick = { onSongTap(songs, 0) },
                         )
                     }
+                    if (visibleArtists.isEmpty()) {
+                        item { EmptyLibraryMessage("No artists match that search.") }
+                    }
                 }
 
                 LibraryFilter.Songs -> {
-                    items(allSongs.size) { index ->
+                    items(visibleSongs.size) { index ->
                         SongRow(
-                            song = allSongs[index],
-                            onClick = { onSongTap(allSongs, index) },
+                            song = visibleSongs[index],
+                            onClick = { onSongTap(visibleSongs, index) },
                         )
+                    }
+                    if (visibleSongs.isEmpty()) {
+                        item { EmptyLibraryMessage("No songs match that search.") }
                     }
                 }
             }
@@ -240,6 +304,67 @@ fun LibraryScreen(
             onRemoveSong = { songId -> vm.removeSongFromPlaylist(playlist.id, songId) },
             launchSuspend = { block -> scope.launch { block() } },
         )
+    }
+}
+
+@Composable
+private fun LibrarySearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Box(modifier = Modifier.weight(1f)) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (value.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(PulseTheme.colors.surfaceSoft)
+                    .clickable { onValueChange("") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Clear search",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
     }
 }
 

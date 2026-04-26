@@ -81,6 +81,15 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.9
+
+- Room now uses explicit migrations instead of destructive resets, so playlists, likes, cached metadata, and lyrics survive normal app updates.
+- Full-screen lyrics are larger overall, and the currently active synced line is visually stronger so it is easier to follow at a glance.
+- Metadata matching is now more conservative: Pulse scores multiple Genius candidates, prefers title + artist + album alignment, and keeps tracks unresolved instead of locking in obviously wrong songs.
+- Manual metadata fixes now persist locally, refresh artwork and lyrics with progress/success feedback, and continue applying after rescans or app updates.
+- The playback wave now reads as motion forming behind the playhead pill instead of a stretched line.
+- Library now has section-aware search for playlists, albums, artists, and songs.
+
 ## What's new in v0.5.8
 
 - The active artwork now drives the entire accent system while a song is playing, so buttons, pills, highlights, and emphasis colors shift toward the album's dominant hue instead of staying locked to beige/gold.
@@ -298,6 +307,14 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.9
+- Room migrations now preserve playlists, likes, cached metadata, and cached lyrics across normal app upgrades
+- Larger full-screen lyrics and stronger emphasis on the current synced line
+- Confidence-based Genius matching with persistent manual overrides for bad matches
+- Clear metadata-fix progress and success/failure feedback from Now Playing
+- Library search by playlists, albums, artists, and songs
+- Waveform animation now flows from behind the playhead pill instead of stretching
 
 ### v0.5.8
 - Dynamic artwork-driven accent theme across controls, pills, and buttons while music is active

@@ -23,5 +23,9 @@ data class SongMetadata(
     val resolvedAlbum: String? = null,
     val artworkUrl: String? = null,       // remote URL — Coil fetches + caches it
     val releaseDate: String? = null,      // e.g. "2017-01-06"
+    val overrideTitle: String? = null,    // user-corrected title, if any
+    val overrideArtist: String? = null,
+    val overrideAlbum: String? = null,
+    val overrideAppliedAt: Long = 0,
     val fetchedAt: Long = System.currentTimeMillis(),
 )
