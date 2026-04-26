@@ -50,7 +50,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
 import com.pulse.music.ui.LibraryViewModel
@@ -72,9 +71,9 @@ private enum class LibraryFilter(val label: String) {
 
 @Composable
 fun LibraryScreen(
+    vm: LibraryViewModel,
     onSongTap: (List<Song>, Int) -> Unit,
 ) {
-    val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
     val likedSongs by vm.likedSongs.collectAsStateWithLifecycle()
@@ -94,7 +93,7 @@ fun LibraryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(PulseTheme.background),
     ) {
         // Header
         Row(

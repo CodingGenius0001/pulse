@@ -1,16 +1,22 @@
 package com.pulse.music.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,17 +34,12 @@ import com.pulse.music.util.gradientFor
 
 /**
  * Album art with a three-level fallback chain:
- *   1. Genius-resolved artwork URL (remote, best quality)
- *   2. Embedded ID3/MP4 artwork from the audio file itself
- *   3. Gradient tile + centered music-note icon
+ * 1. Genius-resolved artwork URL from the Room cache.
+ * 2. Embedded artwork from the audio file.
+ * 3. Deterministic gradient tile.
  *
- * The Genius URL is looked up from the Room cache — no network call here,
- * just a disk read. Background enrichment (in LibraryViewModel) populates
- * the cache after a scan, so the more the user uses the app, the more
- * tracks get pretty art.
- *
- * The gradient is seeded by album+artist so the same album gets the same
- * color across the UI — albums stay visually distinct even without real art.
+ * The metadata row is observed, not read once, so covers appear as soon as
+ * background enrichment finishes.
  */
 @Composable
 fun AlbumArt(
@@ -51,46 +52,48 @@ fun AlbumArt(
         contentAlignment = Alignment.Center,
     ) {
         if (song == null) {
-            MusicNoteFallback(
-                seed = "empty",
-                modifier = Modifier.fillMaxSize(),
-            )
+            MusicNoteFallback(seed = "empty", modifier = Modifier.fillMaxSize())
             return@Box
         }
 
-        // Look up a cached Genius artwork URL for this song. produceState
-        // gives us a reactive value without blocking the composition.
         val geniusArtUrl by produceState<String?>(initialValue = null, song.id) {
-            value = PulseApplication.get()
+            PulseApplication.get()
                 .metadataRepository
-                .getCached(song.id)
-                ?.artworkUrl
+                .observe(song.id)
+                .collect { value = it?.artworkUrl?.takeIf(String::isNotBlank) }
         }
 
-        val primaryModel: Any = geniusArtUrl ?: song.albumArtUri
+        var useEmbeddedFallback by remember(song.id, geniusArtUrl) { mutableStateOf(false) }
+        val model: Any = if (!geniusArtUrl.isNullOrBlank() && !useEmbeddedFallback) {
+            geniusArtUrl.orEmpty()
+        } else {
+            song.albumArtUri
+        }
+
         val painter = rememberAsyncImagePainter(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(primaryModel)
+                .data(model)
                 .crossfade(true)
                 .build(),
         )
         val state = painter.state
 
-        val loadFailed = state is AsyncImagePainter.State.Error ||
-            state is AsyncImagePainter.State.Empty
+        LaunchedEffect(state, geniusArtUrl, useEmbeddedFallback) {
+            if (state is AsyncImagePainter.State.Error &&
+                !geniusArtUrl.isNullOrBlank() &&
+                !useEmbeddedFallback
+            ) {
+                useEmbeddedFallback = true
+            }
+        }
 
-        if (loadFailed) {
-            // If the primary source failed AND it was a Genius URL, we could
-            // in theory try the embedded art next. Doing that requires a second
-            // painter + additional state handling; for v0.4 we just drop to
-            // the gradient fallback. Tracks that Genius resolves correctly
-            // essentially always render fine, so this is a cheap tradeoff.
-            MusicNoteFallback(
-                seed = song.album + song.artist,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            androidx.compose.foundation.Image(
+        MusicNoteFallback(
+            seed = song.album + song.artist,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        if (state !is AsyncImagePainter.State.Error) {
+            Image(
                 painter = painter,
                 contentDescription = "${song.album} cover",
                 contentScale = ContentScale.Crop,
@@ -105,17 +108,17 @@ private fun MusicNoteFallback(
     seed: String,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier.background(gradientFor(seed)),
         contentAlignment = Alignment.Center,
     ) {
+        val minSide = if (maxWidth < maxHeight) maxWidth else maxHeight
+        val iconSize = (minSide * 0.34f).coerceIn(18.dp, 104.dp)
         Icon(
             imageVector = Icons.Filled.MusicNote,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.5f),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(28.dp),
+            tint = Color.White.copy(alpha = 0.48f),
+            modifier = Modifier.size(iconSize),
         )
     }
 }

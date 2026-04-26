@@ -48,6 +48,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.7
 
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.7
@@ -137,8 +139,8 @@ jobs:
 
             **Install:**
             1. Download `pulse-debug.apk` below.
-            2. Uninstall any existing Pulse build first (debug signatures change every CI run, so installs over an existing build will fail).
-            3. Tap the APK on your phone — Android may warn about unknown sources; allow it for whichever app opened the file.
+            2. Tap the APK on your phone. Android may warn about unknown sources; allow it for whichever app opened the file.
+            3. If your currently installed build came from an older one-off debug key, uninstall once, install this build, and future CI builds can update normally.
 
             **Commit message:** ${{ github.event.head_commit.message }}
           files: release-staging/pulse-debug.apk

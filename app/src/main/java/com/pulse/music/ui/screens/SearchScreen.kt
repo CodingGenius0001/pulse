@@ -44,7 +44,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulse.music.data.Song
 import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
@@ -61,9 +60,9 @@ import com.pulse.music.ui.theme.PulseTheme
  */
 @Composable
 fun SearchScreen(
+    vm: LibraryViewModel,
     onSongTap: (List<Song>, Int) -> Unit,
 ) {
-    val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
@@ -79,7 +78,7 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(PulseTheme.background),
     ) {
         // Header + text field
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {

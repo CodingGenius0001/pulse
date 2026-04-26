@@ -63,6 +63,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,9 +92,8 @@ import com.pulse.music.ui.components.PillIconButton
 import com.pulse.music.ui.components.PlayPill
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.util.formatDuration
-import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -106,6 +106,7 @@ fun NowPlayingScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val song = state.currentSong
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     BackHandler(enabled = true) { onBack() }
 
@@ -120,7 +121,7 @@ fun NowPlayingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(PulseTheme.background)
             .statusBarsPadding(),
     ) {
         // Top bar — back arrow + song context, no more overflow button
@@ -216,7 +217,7 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(18.dp))
 
-            WavyScrubber(
+            PillScrubber(
                 isPlaying = state.isPlaying,
                 positionMs = state.positionMs,
                 durationMs = state.durationMs,
@@ -352,7 +353,7 @@ fun NowPlayingScreen(
                             text = { Text("Share") },
                             onClick = {
                                 overflowOpen = false
-                                shareSong(context, song)
+                                shareSong(scope, context, song)
                             },
                             leadingIcon = {
                                 Icon(
@@ -382,15 +383,13 @@ fun NowPlayingScreen(
  * cached Genius URL for the song, we share that so the recipient gets an
  * actual working link. Otherwise we fall back to just the title + artist.
  *
- * Uses GlobalScope deliberately: the dialog action is fire-and-forget from
- * the user's perspective and we don't want to tie the intent launch to a
- * particular Composable's lifecycle. The disk read is a single primary-key
- * Room lookup — cheap and bounded.
+ * The dialog action is launched from the current composition scope, keeping
+ * the coroutine tied to the visible Now Playing surface.
+ * The disk read is a single primary-key Room lookup.
  */
-@OptIn(DelicateCoroutinesApi::class)
-private fun shareSong(context: android.content.Context, song: Song) {
+private fun shareSong(scope: CoroutineScope, context: android.content.Context, song: Song) {
     val app = PulseApplication.get()
-    GlobalScope.launch(Dispatchers.IO) {
+    scope.launch(Dispatchers.IO) {
         val cached = app.metadataRepository.getCached(song.id)
         val url = cached?.geniusUrl
         val shareText = if (url != null) {
@@ -404,6 +403,112 @@ private fun shareSong(context: android.content.Context, song: Song) {
                 putExtra(Intent.EXTRA_TEXT, shareText)
             }
             context.startActivity(Intent.createChooser(intent, "Share"))
+        }
+    }
+}
+
+@Composable
+private fun PillScrubber(
+    isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
+) {
+    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+
+    var trackWidthPx by remember { mutableStateOf(1f) }
+    var dragProgress by remember { mutableFloatStateOf(-1f) }
+    val shownProgress = if (dragProgress >= 0f) dragProgress else progress
+
+    val activeColor = if (isPlaying) PulseTheme.colors.accentPink else MaterialTheme.colorScheme.onBackground
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .onSizeChanged { size: IntSize -> trackWidthPx = size.width.toFloat().coerceAtLeast(1f) }
+                .pointerInput(durationMs) {
+                    detectTapGestures { offset ->
+                        if (durationMs > 0) {
+                            val frac = (offset.x / trackWidthPx).coerceIn(0f, 1f)
+                            onSeek((frac * durationMs).toLong())
+                        }
+                    }
+                }
+                .pointerInput(durationMs) {
+                    detectDragGestures(
+                        onDragStart = { offset: Offset ->
+                            dragProgress = (offset.x / trackWidthPx).coerceIn(0f, 1f)
+                        },
+                        onDrag = { change, _ ->
+                            dragProgress = (change.position.x / trackWidthPx).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            if (dragProgress >= 0f && durationMs > 0) {
+                                onSeek((dragProgress * durationMs).toLong())
+                            }
+                            dragProgress = -1f
+                        },
+                        onDragCancel = { dragProgress = -1f },
+                    )
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+            ) {
+                val w = size.width
+                val h = size.height
+                val centerY = h / 2f
+                val trackHeight = 4.dp.toPx()
+                val thumbWidth = 7.dp.toPx()
+                val thumbHeight = 32.dp.toPx()
+                val thumbX = (w * shownProgress).coerceIn(thumbWidth / 2f, w - thumbWidth / 2f)
+                val trackRadius = androidx.compose.ui.geometry.CornerRadius(trackHeight / 2f, trackHeight / 2f)
+
+                drawRoundRect(
+                    color = inactiveColor,
+                    topLeft = Offset(0f, centerY - trackHeight / 2f),
+                    size = androidx.compose.ui.geometry.Size(w, trackHeight),
+                    cornerRadius = trackRadius,
+                )
+                drawRoundRect(
+                    color = activeColor,
+                    topLeft = Offset(0f, centerY - trackHeight / 2f),
+                    size = androidx.compose.ui.geometry.Size(thumbX, trackHeight),
+                    cornerRadius = trackRadius,
+                )
+                drawRoundRect(
+                    color = activeColor,
+                    topLeft = Offset(thumbX - thumbWidth / 2f, centerY - thumbHeight / 2f),
+                    size = androidx.compose.ui.geometry.Size(thumbWidth, thumbHeight),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(thumbWidth / 2f, thumbWidth / 2f),
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = formatDuration(
+                    if (dragProgress >= 0f) (dragProgress * durationMs).toLong() else positionMs
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = formatDuration(durationMs),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
@@ -594,24 +699,26 @@ private fun BottomAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(20.dp),
         )
         Text(
             text = label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -698,6 +805,13 @@ private fun LyricsDialog(
                             color = PulseTheme.colors.textDim,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                    is LyricsResult.Error -> {
+                        Text(
+                            text = r.message,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge,
                         )
                     }
                 }

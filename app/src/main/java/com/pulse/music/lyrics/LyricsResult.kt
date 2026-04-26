@@ -21,6 +21,8 @@ sealed interface LyricsResult {
      * cached the miss. Either way, UI shows a friendly fallback message.
      */
     data object NotFound : LyricsResult
+
+    data class Error(val message: String) : LyricsResult
 }
 
 /**

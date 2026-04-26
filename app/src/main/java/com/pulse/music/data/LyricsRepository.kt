@@ -4,30 +4,25 @@ import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.network.LrcLibApi
 
 /**
- * Provides lyrics for a song. Reads Room cache first; on miss, queries
- * LRCLIB and writes the result (whether match or miss) back to cache so we
- * never repeat a lookup.
- *
- * Synced lyrics (LRC format) are preferred when available — the UI can
- * highlight lines as the song plays. Otherwise we fall back to plain text.
+ * Provides lyrics for a song. Found lyrics are cached in Room. Misses are
+ * intentionally retried because user tags are often incomplete and lookup
+ * heuristics improve over time.
  */
 class LyricsRepository(
     private val lyricsDao: LyricsDao,
 ) {
 
     suspend fun lyricsFor(song: Song): LyricsResult {
-        // 1. Cache check
         lyricsDao.get(song.id)?.let { cached ->
-            return cached.toResult()
+            if (!cached.notFound) return cached.toResult()
+            lyricsDao.delete(song.id)
         }
 
-        // 2. LRCLIB fetch
-        val durationSec = song.durationMs / 1000
         val response = LrcLibApi.fetch(
             trackName = song.title,
             artistName = song.artist,
             albumName = song.album,
-            durationSeconds = durationSec,
+            durationSeconds = song.durationMs / 1000,
         )
 
         val record = when (response) {
@@ -43,13 +38,13 @@ class LyricsRepository(
                 notFound = true,
             )
             LrcLibApi.LrcLibResponse.Error -> {
-                // Don't cache errors — transient network issue shouldn't lock
-                // the user out of retrying once they're back on wifi.
-                return LyricsResult.NotFound
+                return LyricsResult.Error("Couldn't reach LRCLIB. Check your connection and try again.")
             }
         }
 
-        lyricsDao.upsert(record)
+        if (!record.notFound) {
+            lyricsDao.upsert(record)
+        }
         return record.toResult()
     }
 
@@ -60,7 +55,6 @@ class LyricsRepository(
     }
 
     private fun SongLyrics.toResult(): LyricsResult {
-        // Prefer synced if present — the UI gets karaoke-style highlighting.
         syncedLyrics?.takeIf { it.isNotBlank() }?.let {
             return LyricsResult.Found(text = it, synced = true)
         }

@@ -42,7 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulse.music.data.Song
 import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
@@ -55,11 +54,12 @@ import com.pulse.music.util.gradientFor
 
 @Composable
 fun ForYouScreen(
+    vm: LibraryViewModel,
+    updateVm: UpdateViewModel,
     onSongTap: (List<Song>, Int) -> Unit,
     onHeroPlay: (List<Song>) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
     val recentlyPlayed by vm.recentlyPlayed.collectAsStateWithLifecycle()
@@ -70,7 +70,7 @@ fun ForYouScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(PulseTheme.background),
         contentPadding = PaddingValues(
             top = 8.dp,
             bottom = BottomBarContentPadding.calculateBottomPadding(),
@@ -81,7 +81,7 @@ fun ForYouScreen(
         // Conditional update banner — only renders when the user has run a
         // manual check that returned an Available state. Tap → Settings,
         // where they can download.
-        item { UpdateBanner(onOpenSettings = onOpenSettings) }
+        item { UpdateBanner(updateVm = updateVm, onOpenSettings = onOpenSettings) }
 
         item {
             Spacer(Modifier.height(4.dp))
@@ -491,9 +491,8 @@ private fun EmptyState(
  * Ready, Error).
  */
 @Composable
-private fun UpdateBanner(onOpenSettings: () -> Unit) {
-    val vm: UpdateViewModel = viewModel(factory = UpdateViewModel.Factory)
-    val state by vm.state.collectAsStateWithLifecycle()
+private fun UpdateBanner(updateVm: UpdateViewModel, onOpenSettings: () -> Unit) {
+    val state by updateVm.state.collectAsStateWithLifecycle()
     val info = (state as? UpdateState.Available)?.info ?: return
 
     Box(

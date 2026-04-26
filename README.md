@@ -81,6 +81,14 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.1
+
+- Album art now observes cached Genius metadata and appears as soon as enrichment finishes.
+- Genius misses from missing tokens or transient network errors are no longer cached permanently.
+- LRCLIB lookup is more forgiving with missing artist tags, stale cached lyric misses are retried, and network failures show as fetch errors instead of false "not found" messages.
+- Now Playing uses a Google-style pill scrubber, cleaner typography, non-wrapping bottom actions, and a subtle artwork-derived background tint.
+- Shared library and updater ViewModels are hoisted to the app root to avoid duplicate scans and mismatched update banner state.
+
 ## What's new in v0.5.0
 
 ### Major details
@@ -268,6 +276,14 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.1
+- Live album-art refresh after metadata enrichment
+- Safer Genius metadata caching and title-only fallback for missing artist tags
+- More forgiving LRCLIB matching, retried cached misses, and clearer lyric errors
+- Google-style pill scrubber and cleaner typography
+- Artwork-derived background tint while music is active
+- Shared root-scoped library/update ViewModels
 
 ### v0.5.0
 - In-app updater (manual check, Settings + Home banner)

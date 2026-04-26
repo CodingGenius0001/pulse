@@ -30,6 +30,8 @@ object GeniusApi {
         coerceInputValues = true
     }
 
+    fun isConfigured(): Boolean = BuildConfig.GENIUS_ACCESS_TOKEN.isNotBlank()
+
     /**
      * Search Genius for a song. Returns the top hit's ID and URL, or null if
      * no hit matched, the artist is unknown (matching is too loose without
@@ -101,6 +103,67 @@ object GeniusApi {
     }
 
     /**
+     * Richer search result for metadata enrichment. This lets the repository
+     * avoid permanently caching misses when the token is absent or the network
+     * failed, while still caching real "Genius has no match" results.
+     */
+    suspend fun searchForMetadata(title: String, artist: String): GeniusSearchOutcome = withContext(Dispatchers.IO) {
+        val token = BuildConfig.GENIUS_ACCESS_TOKEN
+        if (token.isBlank()) return@withContext GeniusSearchOutcome.Unavailable
+
+        val cleanTitle = title.cleanSearchText()
+        if (cleanTitle.isBlank()) return@withContext GeniusSearchOutcome.NoMatch
+
+        val knownArtist = artist.isKnownArtist()
+        val query = if (knownArtist) "$cleanTitle ${artist.cleanSearchText()}" else cleanTitle
+        val url = "$BASE_URL/search".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("q", query)
+            .build()
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $token")
+            .get()
+            .build()
+
+        try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext GeniusSearchOutcome.Unavailable
+                val body = response.body?.string() ?: return@withContext GeniusSearchOutcome.Unavailable
+                val parsed = json.decodeFromString(SearchResponse.serializer(), body)
+
+                val firstGoodHit = parsed.response.hits.firstOrNull { hit ->
+                    val result = hit.result
+                    val titleMatches = result.title.cleanSearchText().titleLooksLike(cleanTitle)
+                    if (!titleMatches) return@firstOrNull false
+
+                    if (!knownArtist) {
+                        true
+                    } else {
+                        result.primaryArtist?.name?.artistLooksLike(artist) == true
+                    }
+                } ?: parsed.response.hits.firstOrNull { hit ->
+                    !knownArtist && hit.result.title.cleanSearchText().titleLooksLike(cleanTitle)
+                } ?: return@withContext GeniusSearchOutcome.NoMatch
+
+                val r = firstGoodHit.result
+                GeniusSearchOutcome.Found(
+                    SearchHit(
+                        id = r.id,
+                        url = r.url,
+                        title = r.title,
+                        artist = r.primaryArtist?.name,
+                        artworkUrl = r.songArtImageUrl,
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            GeniusSearchOutcome.Unavailable
+        }
+    }
+
+    /**
      * Fetch the full song record for a Genius ID. Adds richer fields like
      * album name and release date on top of what /search returns.
      */
@@ -142,6 +205,12 @@ object GeniusApi {
 
 // ---------- Simplified public types our app actually consumes ----------
 
+sealed interface GeniusSearchOutcome {
+    data class Found(val hit: SearchHit) : GeniusSearchOutcome
+    data object NoMatch : GeniusSearchOutcome
+    data object Unavailable : GeniusSearchOutcome
+}
+
 data class SearchHit(
     val id: Long,
     val url: String,
@@ -159,6 +228,39 @@ data class SongDetails(
     val artworkUrl: String?,
     val releaseDate: String?,
 )
+
+private fun String.isKnownArtist(): Boolean =
+    isNotBlank() && !equals("Unknown artist", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
+
+private fun String.cleanSearchText(): String =
+    lowercase()
+        .replace(Regex("""\([^)]*\)|\[[^]]*]"""), " ")
+        .replace(Regex("""\b(remaster(ed)?|explicit|clean|audio|official|video|lyrics?|feat\.?|ft\.?)\b"""), " ")
+        .replace(Regex("""[^a-z0-9& ]+"""), " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+
+private fun String.titleLooksLike(expected: String): Boolean {
+    if (isBlank() || expected.isBlank()) return false
+    if (this == expected || contains(expected) || expected.contains(this)) return true
+    val expectedTokens = expected.split(" ").filter { it.length > 2 }.toSet()
+    val actualTokens = split(" ").filter { it.length > 2 }.toSet()
+    if (expectedTokens.isEmpty() || actualTokens.isEmpty()) return false
+    val overlap = expectedTokens.intersect(actualTokens).size
+    return overlap >= expectedTokens.size.coerceAtMost(2)
+}
+
+private fun String.artistLooksLike(expected: String): Boolean {
+    val actual = cleanSearchText()
+    val wanted = expected.cleanSearchText()
+    if (actual.isBlank() || wanted.isBlank()) return false
+    if (actual.contains(wanted) || wanted.contains(actual)) return true
+
+    val noise = setOf("the", "and", "&", "x", "with")
+    val expectedTokens = wanted.split(" ").filter { it.length > 1 && it !in noise }.toSet()
+    val actualTokens = actual.split(" ").filter { it.length > 1 && it !in noise }.toSet()
+    return expectedTokens.intersect(actualTokens).isNotEmpty()
+}
 
 // ---------- Serialization DTOs matching Genius's response shape ----------
 // Kept @Serializable + internal so they're parse-only and not leaked into the

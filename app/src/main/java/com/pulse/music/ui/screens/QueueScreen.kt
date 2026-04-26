@@ -60,7 +60,7 @@ fun QueueScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(PulseTheme.background)
             .statusBarsPadding(),
     ) {
         // Top bar

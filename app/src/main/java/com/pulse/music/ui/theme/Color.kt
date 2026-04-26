@@ -1,10 +1,13 @@
 package com.pulse.music.ui.theme
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.isSpecified
 
 /**
  * Pulse semantic color tokens. Provided by a CompositionLocal that
@@ -67,6 +70,7 @@ private val LightTokens = PulseColorTokens(
 )
 
 internal val LocalPulseColors = compositionLocalOf { DarkTokens }
+internal val LocalPulseBackgroundTint = compositionLocalOf { Color.Unspecified }
 
 internal val DarkPulseColors = DarkTokens
 internal val LightPulseColors = LightTokens
@@ -80,6 +84,15 @@ object PulseTheme {
         @Composable
         @ReadOnlyComposable
         get() = LocalPulseColors.current
+
+    val background: Color
+        @Composable
+        @ReadOnlyComposable
+        get() {
+            val tint = LocalPulseBackgroundTint.current
+            val base = MaterialTheme.colorScheme.background
+            return if (tint.isSpecified) tint.compositeOver(base) else base
+        }
 }
 
 /**

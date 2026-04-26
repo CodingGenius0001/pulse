@@ -249,9 +249,14 @@ class PlayerViewModel(
 
     fun toggleLike() {
         val song = _state.value.currentSong ?: return
+        val updated = song.copy(liked = !song.liked)
+        currentQueue = currentQueue.map { queued ->
+            if (queued.id == song.id) updated else queued
+        }
         viewModelScope.launch { repository.toggleLike(song) }
         _state.value = _state.value.copy(
-            currentSong = song.copy(liked = !song.liked),
+            currentSong = updated,
+            queue = currentQueue,
         )
     }
 

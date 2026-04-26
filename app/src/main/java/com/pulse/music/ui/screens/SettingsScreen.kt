@@ -50,7 +50,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.ThemePreference
 import com.pulse.music.ui.LibraryViewModel
@@ -61,8 +60,10 @@ import com.pulse.music.update.UpdateViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen() {
-    val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
+fun SettingsScreen(
+    vm: LibraryViewModel,
+    updateVm: UpdateViewModel,
+) {
     val scanState by vm.scanState.collectAsStateWithLifecycle()
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
     val folderState by vm.folderState.collectAsStateWithLifecycle()
@@ -77,7 +78,7 @@ fun SettingsScreen() {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(PulseTheme.background),
         contentPadding = PaddingValues(
             top = 8.dp,
             bottom = BottomBarContentPadding.calculateBottomPadding(),
@@ -172,7 +173,7 @@ fun SettingsScreen() {
 
         item {
             SectionLabel("Updates")
-            UpdateRow()
+            UpdateRow(updateVm)
         }
 
         item {
@@ -420,8 +421,7 @@ private fun RenameDialog(
  * testable in isolation.
  */
 @Composable
-private fun UpdateRow() {
-    val vm: UpdateViewModel = viewModel(factory = UpdateViewModel.Factory)
+private fun UpdateRow(vm: UpdateViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
 
     when (val s = state) {
