@@ -29,7 +29,7 @@ object LrcLibApi {
     )
 
     private const val BASE_URL = "https://lrclib.net/api"
-    private const val USER_AGENT = "Pulse-Android/0.5.9 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.11 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -142,6 +142,64 @@ object LrcLibApi {
             expectedAlbum = albumName.takeIf { it.isKnownAlbum() },
             durationSeconds = durationSeconds,
         )
+    }
+
+    suspend fun searchCandidates(
+        trackName: String,
+        artistName: String = "",
+        albumName: String = "",
+        durationSeconds: Long = 0,
+    ): List<TrackInfo> = withContext(Dispatchers.IO) {
+        val cleanTrack = trackName.cleanForLyricsQuery()
+        if (cleanTrack.isBlank()) return@withContext emptyList()
+
+        val builder = "$BASE_URL/search".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("track_name", cleanTrack)
+        artistName
+            .takeIf { it.isKnownArtist() }
+            ?.let { builder.addQueryParameter("artist_name", it) }
+
+        val request = Request.Builder()
+            .url(builder.build())
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val candidates = json.decodeFromString(
+                    ListSerializer(SearchResultDto.serializer()),
+                    body,
+                )
+                candidates
+                    .filter { it.hasContent() }
+                    .map { candidate ->
+                        candidate to scoreCandidate(
+                            candidate = candidate,
+                            expectedTrack = cleanTrack,
+                            expectedArtist = artistName.takeIf { it.isKnownArtist() },
+                            expectedAlbum = albumName.takeIf { it.isKnownAlbum() },
+                            durationSeconds = durationSeconds,
+                        )
+                    }
+                    .filter { (_, score) -> score >= 40 }
+                    .sortedByDescending { (_, score) -> score }
+                    .map { it.first.toTrackInfo() }
+                    .distinctBy {
+                        listOf(
+                            it.title.cleanForLyricsQuery(),
+                            it.artist.orEmpty().cleanForLyricsQuery(),
+                            it.album.orEmpty().cleanForLyricsQuery(),
+                        ).joinToString("|")
+                    }
+                    .take(8)
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun LrcLibResponse.Found.hasContent(): Boolean =

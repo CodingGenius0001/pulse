@@ -71,6 +71,20 @@ class LyricsRepository(
         return lyricsFor(song)
     }
 
+    suspend fun searchCandidates(
+        title: String,
+        artist: String = "",
+        album: String = "",
+        durationSeconds: Long = 0,
+    ): List<LrcLibApi.TrackInfo> {
+        return LrcLibApi.searchCandidates(
+            trackName = title,
+            artistName = artist,
+            albumName = album,
+            durationSeconds = durationSeconds,
+        )
+    }
+
     private fun SongLyrics.toResult(): LyricsResult {
         syncedLyrics?.takeIf { it.isNotBlank() }?.let {
             return LyricsResult.Found(text = it, synced = true)

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
@@ -103,6 +104,7 @@ import com.pulse.music.data.SongMetadata
 import com.pulse.music.lyrics.LrcLine
 import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.lyrics.parseLrc
+import com.pulse.music.network.LrcLibApi
 import com.pulse.music.player.PlayerViewModel
 import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
@@ -478,7 +480,6 @@ fun NowPlayingScreen(
             FixMatchDialog(
                 initialTitle = displayTitle,
                 initialArtist = displayArtist,
-                initialAlbum = displayAlbum,
                 onDismiss = { showFixMatch = false },
                 onSave = { title, artist, album ->
                     showFixMatch = false
@@ -491,10 +492,8 @@ fun NowPlayingScreen(
                             val message = when {
                                 !refreshedMetadata.artworkUrl.isNullOrBlank() ->
                                     "Matched the song and refreshed artwork${lyricsSuffix(refreshedLyrics)}."
-                                refreshedMetadata.geniusId != null ->
-                                    "Matched the song, but Genius did not provide album artwork${lyricsSuffix(refreshedLyrics)}."
                                 else ->
-                                    "Saved the correction, but Pulse still could not confirm a safe Genius artwork match${lyricsSuffix(refreshedLyrics)}."
+                                    "Saved the correction, but Pulse still could not confirm artwork for that match${lyricsSuffix(refreshedLyrics)}."
                             }
                             matchRefreshState = MatchRefreshState.Success(message)
                         } catch (_: java.util.concurrent.CancellationException) {
@@ -508,6 +507,14 @@ fun NowPlayingScreen(
                             matchRefreshJob = null
                         }
                     }
+                },
+                onSearch = { title, artist ->
+                    app.lyricsRepository.searchCandidates(
+                        title = title,
+                        artist = artist,
+                        album = displayAlbum,
+                        durationSeconds = song.durationMs / 1000,
+                    )
                 },
             )
         }
@@ -1046,13 +1053,16 @@ private fun MatchRefreshMessageDialog(
 private fun FixMatchDialog(
     initialTitle: String,
     initialArtist: String,
-    initialAlbum: String,
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Unit,
+    onSearch: suspend (String, String) -> List<LrcLibApi.TrackInfo>,
 ) {
     var title by remember(initialTitle) { mutableStateOf(initialTitle) }
     var artist by remember(initialArtist) { mutableStateOf(initialArtist) }
-    var album by remember(initialAlbum) { mutableStateOf(initialAlbum) }
+    var candidates by remember { mutableStateOf<List<LrcLibApi.TrackInfo>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1060,33 +1070,132 @@ private fun FixMatchDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "If Pulse matched the wrong song, correct the title, artist, or album here and it will retry both artwork and lyrics.",
+                    text = "Search by song title and optionally artist, then pick the matching track from LRCLIB.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 MatchField(value = title, onValueChange = { title = it.take(120) }, placeholder = "Song title")
-                MatchField(value = artist, onValueChange = { artist = it.take(120) }, placeholder = "Artist")
-                MatchField(value = album, onValueChange = { album = it.take(120) }, placeholder = "Album")
+                MatchField(value = artist, onValueChange = { artist = it.take(120) }, placeholder = "Artist (optional)")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(PulseTheme.colors.surfaceSoft)
+                        .clickable(enabled = !isSearching && title.isNotBlank()) {
+                            isSearching = true
+                            errorMessage = null
+                            scope.launch {
+                                runCatching { onSearch(title.trim(), artist.trim()) }
+                                    .onSuccess { candidates = it }
+                                    .onFailure { errorMessage = error.message ?: "Search failed." }
+                                isSearching = false
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isSearching) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            color = PulseTheme.colors.accentViolet,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = PulseTheme.colors.accentViolet,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        text = if (isSearching) "Searching..." else "Find matches",
+                        color = if (title.isNotBlank()) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+                errorMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (candidates.isNotEmpty()) {
+                    LazyColumn(
+                        modifier = Modifier.height(220.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(candidates) { _, candidate ->
+                            MatchCandidateRow(
+                                candidate = candidate,
+                                onClick = {
+                                    onSave(
+                                        candidate.title,
+                                        candidate.artist?.takeIf { it.isNotBlank() } ?: artist.trim(),
+                                        candidate.album?.takeIf { it.isNotBlank() }.orEmpty(),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                } else if (!isSearching && title.isNotBlank()) {
+                    Text(
+                        text = "No candidates yet. Run a search to see possible lyric matches.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    if (title.isNotBlank() && artist.isNotBlank()) {
-                        onSave(title.trim(), artist.trim(), album.trim())
-                    }
-                },
-            ) {
-                Text("Retry match", color = PulseTheme.colors.accentViolet)
-            }
-        },
-        dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Close", color = PulseTheme.colors.accentViolet)
             }
         },
         containerColor = PulseTheme.colors.surface,
     )
+}
+
+@Composable
+private fun MatchCandidateRow(
+    candidate: LrcLibApi.TrackInfo,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = candidate.title,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = listOfNotNull(candidate.artist, candidate.album).joinToString(" - ").ifBlank { "Unknown album" },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = "Use",
+            color = PulseTheme.colors.accentViolet,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
 }
 
 @Composable

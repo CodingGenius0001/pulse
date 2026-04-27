@@ -81,6 +81,11 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.11
+
+- Metadata matching now prefers MusicBrainz and Cover Art Archive, with Genius demoted to a secondary fallback instead of being the main authority.
+- Fix metadata and lyrics now uses a search-and-pick flow backed by LRCLIB candidates, so users can choose the correct song instead of typing album details manually.
+
 ## What's new in v0.5.10
 
 - The post-update changelog dialog now reflects the actual installed build instead of repeatedly resurfacing the previous release summary.
@@ -312,6 +317,10 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.11
+- MusicBrainz plus Cover Art Archive is now the primary metadata and artwork chain, with Genius as a fallback
+- Manual metadata and lyrics correction now uses LRCLIB search candidates instead of a raw title/artist/album form
 
 ### v0.5.10
 - Post-update changelog dialog now uses build-specific install context instead of repeating the old release summary
