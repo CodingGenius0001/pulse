@@ -9,6 +9,7 @@ import com.pulse.music.data.MetadataRepository
 import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
+import com.pulse.music.data.SongMetadata
 import com.pulse.music.data.UserPreferences
 import com.pulse.music.lyrics.LyricsResult
 import kotlinx.coroutines.Dispatchers
