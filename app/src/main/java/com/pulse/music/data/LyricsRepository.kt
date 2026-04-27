@@ -14,12 +14,11 @@ class LyricsRepository(
 ) {
 
     suspend fun lyricsFor(song: Song): LyricsResult {
+        val metadata = metadataDao.get(song.id)
         lyricsDao.get(song.id)?.let { cached ->
             if (!cached.notFound) return cached.toResult()
             lyricsDao.delete(song.id)
         }
-
-        val metadata = metadataDao.get(song.id)
         val requests = buildLookupRequests(song, metadata)
 
         var sawNetworkError = false
@@ -38,6 +37,7 @@ class LyricsRepository(
             }
         }
 
+        val attemptedAt = System.currentTimeMillis()
         val record = when (response) {
             is LrcLibApi.LrcLibResponse.Found -> SongLyrics(
                 songId = song.id,
@@ -56,9 +56,19 @@ class LyricsRepository(
         }
 
         if (record.notFound && sawNetworkError) {
+            markLyricsAttempt(
+                songId = song.id,
+                attemptedAt = attemptedAt,
+                resolved = false,
+            )
             return LyricsResult.Error("Couldn't reach LRCLIB. Check your connection and try again.")
         }
 
+        markLyricsAttempt(
+            songId = song.id,
+            attemptedAt = attemptedAt,
+            resolved = !record.notFound,
+        )
         if (!record.notFound) {
             lyricsDao.upsert(record)
         }
@@ -67,8 +77,31 @@ class LyricsRepository(
 
     /** Force a re-fetch, bypassing cache. */
     suspend fun refresh(song: Song): LyricsResult {
+        val existing = lyricsDao.get(song.id)
         lyricsDao.delete(song.id)
-        return lyricsFor(song)
+        val refreshed = lyricsFor(song)
+        return when {
+            refreshed is LyricsResult.Found -> refreshed
+            existing != null && !existing.notFound -> {
+                lyricsDao.upsert(existing)
+                existing.toResult()
+            }
+            else -> refreshed
+        }
+    }
+
+    suspend fun needsBackgroundFetch(song: Song, metadata: SongMetadata?): Boolean {
+        val cached = lyricsDao.get(song.id)
+        if (cached != null && !cached.notFound) return false
+
+        val now = System.currentTimeMillis()
+        val hasResolvedIdentity = metadata.hasResolvedIdentity() ||
+            song.artist.isKnownArtist()
+        if (!hasResolvedIdentity) return false
+
+        if ((metadata?.lyricsResolvedAt ?: 0L) > 0L) return false
+        val attemptedAt = metadata?.lyricsAttemptedAt ?: 0L
+        return attemptedAt == 0L || now - attemptedAt >= LYRICS_RETRY_WINDOW_MS
     }
 
     suspend fun searchCandidates(
@@ -126,4 +159,41 @@ class LyricsRepository(
         val artist: String,
         val album: String,
     )
+
+    private suspend fun markLyricsAttempt(
+        songId: Long,
+        attemptedAt: Long,
+        resolved: Boolean,
+    ) {
+        val metadata = metadataDao.get(songId) ?: SongMetadata(songId = songId)
+        metadataDao.upsert(
+            metadata.copy(
+                lyricsAttemptedAt = attemptedAt,
+                lyricsResolvedAt = if (resolved) attemptedAt else metadata.lyricsResolvedAt,
+            )
+        )
+    }
+
+    private fun SongMetadata?.hasResolvedIdentity(): Boolean =
+        this != null &&
+            (
+                identityResolvedAt > 0L ||
+                    !resolvedTitle.isNullOrBlank() ||
+                    resolvedArtist.isKnownArtist() ||
+                    resolvedAlbum.isKnownAlbum()
+                )
+
+    private fun String?.isKnownArtist(): Boolean =
+        !isNullOrBlank() &&
+            !equals("Unknown artist", ignoreCase = true) &&
+            !equals("<unknown>", ignoreCase = true)
+
+    private fun String?.isKnownAlbum(): Boolean =
+        !isNullOrBlank() &&
+            !equals("Unknown album", ignoreCase = true) &&
+            !equals("<unknown>", ignoreCase = true)
+
+    private companion object {
+        const val LYRICS_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000L
+    }
 }

@@ -27,5 +27,10 @@ data class SongMetadata(
     val overrideArtist: String? = null,
     val overrideAlbum: String? = null,
     val overrideAppliedAt: Long = 0,
+    val identityResolvedAt: Long = 0,
+    val artworkAttemptedAt: Long = 0,
+    val artworkResolvedAt: Long = 0,
+    val lyricsAttemptedAt: Long = 0,
+    val lyricsResolvedAt: Long = 0,
     val fetchedAt: Long = System.currentTimeMillis(),
 )

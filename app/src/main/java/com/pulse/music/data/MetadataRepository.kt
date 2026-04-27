@@ -39,8 +39,10 @@ class MetadataRepository(
             album = song.album,
         ),
         persistOverride: Boolean = false,
+        force: Boolean = false,
     ): SongMetadata {
         val existing = metadataDao.get(song.id)
+        val now = System.currentTimeMillis()
         val storedOverride = existing?.overrideInput()
         val requestedInput = input.normalizedFor(song)
         val effectiveInput = when {
@@ -54,7 +56,7 @@ class MetadataRepository(
             else -> null
         }
 
-        if (input.matches(song) && existing != null && !shouldRetry(song, existing, effectiveInput)) {
+        if (!force && input.matches(song) && existing != null && !shouldRetry(song, existing, effectiveInput)) {
             return existing
         }
 
@@ -223,17 +225,20 @@ class MetadataRepository(
             else -> SongMetadata(songId = song.id)
         }
 
-        metadataDao.upsert(resolvedRecord)
-        return resolvedRecord
+        val finalRecord = resolvedRecord
+            .preserveUsefulExisting(existing)
+            .withEnrichmentState(existing, now)
+        metadataDao.upsert(finalRecord)
+        return finalRecord
     }
 
     suspend fun refresh(song: Song): SongMetadata {
         val existing = metadataDao.get(song.id)
-        metadataDao.delete(song.id)
         return resolve(
             song = song,
             input = existing?.overrideInput() ?: MatchInput(song.title, song.artist, song.album),
             persistOverride = existing?.hasOverride() == true,
+            force = true,
         )
     }
 
@@ -242,7 +247,18 @@ class MetadataRepository(
             song = song,
             input = MatchInput(title, artist, album),
             persistOverride = true,
+            force = true,
         )
+    }
+
+    suspend fun needsBackgroundEnrichment(song: Song): Boolean {
+        val cached = metadataDao.get(song.id) ?: return true
+        if (!cached.hasResolvedIdentity()) return true
+        if (!cached.hasResolvedArtwork()) {
+            val attemptedAt = cached.artworkAttemptedAt
+            return attemptedAt == 0L || System.currentTimeMillis() - attemptedAt >= ARTWORK_RETRY_WINDOW_MS
+        }
+        return false
     }
 
     private suspend fun searchGeniusCandidates(
@@ -495,6 +511,10 @@ class MetadataRepository(
     }
 
     private fun shouldRetry(song: Song, cached: SongMetadata, input: MatchInput): Boolean {
+        if (!cached.hasResolvedIdentity()) {
+            return true
+        }
+
         val noResolvedInfo = cached.geniusId == null &&
             cached.geniusUrl.isNullOrBlank() &&
             cached.resolvedTitle.isNullOrBlank() &&
@@ -502,9 +522,7 @@ class MetadataRepository(
             cached.resolvedAlbum.isNullOrBlank() &&
             cached.artworkUrl.isNullOrBlank()
         if (noResolvedInfo) {
-            return song.artist.isUnknownArtist() ||
-                input.artist.isKnownArtist() ||
-                System.currentTimeMillis() - cached.fetchedAt >= ARTWORK_RETRY_WINDOW_MS
+            return true
         }
 
         val hasManualOverrideWithoutArtwork = cached.hasOverride() &&
@@ -524,6 +542,10 @@ class MetadataRepository(
             (
                 input.artist.isUnknownArtist() ||
                     cached.resolvedArtist.cleanKey() == input.artist.cleanKey()
+                ) &&
+            (
+                cached.artworkAttemptedAt == 0L ||
+                    System.currentTimeMillis() - cached.artworkAttemptedAt >= ARTWORK_RETRY_WINDOW_MS
                 )
         return missingArtworkButMatched
     }
@@ -575,6 +597,94 @@ class MetadataRepository(
 
     private fun SongMetadata.hasOverride(): Boolean =
         !overrideTitle.isNullOrBlank() || !overrideArtist.isNullOrBlank() || !overrideAlbum.isNullOrBlank()
+
+    private fun SongMetadata.hasResolvedIdentity(): Boolean =
+        identityResolvedAt > 0L ||
+            !resolvedTitle.isNullOrBlank() ||
+            resolvedArtist.isKnownArtist() ||
+            resolvedAlbum.isKnownAlbum()
+
+    private fun SongMetadata.hasResolvedArtwork(): Boolean =
+        artworkResolvedAt > 0L || !artworkUrl.isNullOrBlank()
+
+    private fun SongMetadata.hasAnyResolvedFields(): Boolean =
+        geniusId != null ||
+            !geniusUrl.isNullOrBlank() ||
+            !resolvedTitle.isNullOrBlank() ||
+            !resolvedArtist.isNullOrBlank() ||
+            !resolvedAlbum.isNullOrBlank() ||
+            !artworkUrl.isNullOrBlank() ||
+            !releaseDate.isNullOrBlank()
+
+    private fun SongMetadata.preserveUsefulExisting(existing: SongMetadata?): SongMetadata {
+        if (existing == null) return this
+        if (!hasAnyResolvedFields()) return existing.copy(
+            overrideTitle = overrideTitle ?: existing.overrideTitle,
+            overrideArtist = overrideArtist ?: existing.overrideArtist,
+            overrideAlbum = overrideAlbum ?: existing.overrideAlbum,
+            overrideAppliedAt = maxOf(overrideAppliedAt, existing.overrideAppliedAt),
+        )
+        val sameIdentity = sameResolvedIdentityAs(existing)
+        return if (sameIdentity) {
+            copy(
+                geniusId = geniusId ?: existing.geniusId,
+                geniusUrl = geniusUrl ?: existing.geniusUrl,
+                resolvedTitle = resolvedTitle ?: existing.resolvedTitle,
+                resolvedArtist = resolvedArtist ?: existing.resolvedArtist,
+                resolvedAlbum = resolvedAlbum ?: existing.resolvedAlbum,
+                artworkUrl = artworkUrl ?: existing.artworkUrl,
+                releaseDate = releaseDate ?: existing.releaseDate,
+                overrideTitle = overrideTitle ?: existing.overrideTitle,
+                overrideArtist = overrideArtist ?: existing.overrideArtist,
+                overrideAlbum = overrideAlbum ?: existing.overrideAlbum,
+                overrideAppliedAt = maxOf(overrideAppliedAt, existing.overrideAppliedAt),
+            )
+        } else {
+            copy(
+                overrideTitle = overrideTitle ?: existing.overrideTitle,
+                overrideArtist = overrideArtist ?: existing.overrideArtist,
+                overrideAlbum = overrideAlbum ?: existing.overrideAlbum,
+                overrideAppliedAt = maxOf(overrideAppliedAt, existing.overrideAppliedAt),
+            )
+        }
+    }
+
+    private fun SongMetadata.sameResolvedIdentityAs(other: SongMetadata): Boolean {
+        val thisTitle = resolvedTitle.cleanKey()
+        val otherTitle = other.resolvedTitle.cleanKey()
+        val thisArtist = resolvedArtist.cleanKey()
+        val otherArtist = other.resolvedArtist.cleanKey()
+        return thisTitle.isNotBlank() &&
+            otherTitle.isNotBlank() &&
+            thisTitle == otherTitle &&
+            (
+                thisArtist.isBlank() ||
+                    otherArtist.isBlank() ||
+                    thisArtist == otherArtist
+                )
+    }
+
+    private fun SongMetadata.withEnrichmentState(
+        existing: SongMetadata?,
+        attemptedAt: Long,
+    ): SongMetadata {
+        val identityAt = when {
+            hasResolvedIdentity() -> existing?.identityResolvedAt?.takeIf { it > 0L } ?: attemptedAt
+            else -> existing?.identityResolvedAt ?: 0L
+        }
+        val artResolvedAt = when {
+            hasResolvedArtwork() -> existing?.artworkResolvedAt?.takeIf { it > 0L } ?: attemptedAt
+            else -> existing?.artworkResolvedAt ?: 0L
+        }
+        return copy(
+            identityResolvedAt = identityAt,
+            artworkAttemptedAt = attemptedAt,
+            artworkResolvedAt = artResolvedAt,
+            lyricsAttemptedAt = existing?.lyricsAttemptedAt ?: lyricsAttemptedAt,
+            lyricsResolvedAt = existing?.lyricsResolvedAt ?: lyricsResolvedAt,
+            fetchedAt = attemptedAt,
+        )
+    }
 
     private fun MatchInput.normalizedFor(song: Song): MatchInput =
         MatchInput(

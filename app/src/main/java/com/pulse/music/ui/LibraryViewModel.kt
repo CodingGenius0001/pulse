@@ -10,7 +10,11 @@ import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
 import com.pulse.music.data.UserPreferences
+import com.pulse.music.lyrics.LyricsResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,15 +26,6 @@ import kotlinx.coroutines.launch
 
 /**
  * Shared ViewModel for the library-facing screens (For you, Library, Settings, Search).
- *
- * Owns:
- *  - library data flows (all songs, recently played/added, liked, playlists)
- *  - scan state (Idle / Scanning / Completed)
- *  - folder state (path, whether it exists on disk)
- *  - the user's display name (used by avatars + Settings profile card)
- *
- * Kicks off an initial scan in init. If the Pulse folder doesn't exist yet,
- * the scan returns 0 songs and the UI surfaces an empty state.
  */
 class LibraryViewModel(
     private val repository: MusicRepository,
@@ -39,17 +34,12 @@ class LibraryViewModel(
     private val lyricsRepository: LyricsRepository,
 ) : ViewModel() {
 
-    // ---------- Scan state ----------
-
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
 
-    // ---------- Folder state ----------
-
-    /** Describes where Pulse expects music to live and whether that folder exists. */
     data class FolderState(
-        val displayPath: String,   // short path for UI, e.g. "Music/Pulse"
-        val fullPath: String,      // real absolute path (for debugging)
+        val displayPath: String,
+        val fullPath: String,
         val exists: Boolean,
     )
 
@@ -64,8 +54,7 @@ class LibraryViewModel(
 
     private val _metadataRefreshState = MutableStateFlow<MetadataRefreshState>(MetadataRefreshState.Idle)
     val metadataRefreshState: StateFlow<MetadataRefreshState> = _metadataRefreshState.asStateFlow()
-
-    // ---------- Library data flows ----------
+    private var enrichmentJob: Job? = null
 
     val allSongs: StateFlow<List<Song>> = repository.observeAllSongs()
         .stateInEager(emptyList())
@@ -85,8 +74,6 @@ class LibraryViewModel(
     val playlists: StateFlow<List<Playlist>> = repository.observePlaylists()
         .stateInEager(emptyList())
 
-    // ---------- User preferences ----------
-
     val userName: StateFlow<String> = prefs.userName
         .stateIn(viewModelScope, SharingStarted.Eagerly, "You")
 
@@ -94,44 +81,20 @@ class LibraryViewModel(
         rescan()
     }
 
-    // ---------- Commands ----------
-
     fun rescan() {
         viewModelScope.launch(Dispatchers.IO) {
             _scanState.value = ScanState.Scanning
             val count = repository.rescan()
             _scanState.value = ScanState.Completed(count, System.currentTimeMillis())
-            // Refresh folder state in case the folder was created between scans
             _folderState.value = FolderState(
                 displayPath = repository.pulseFolderDisplayPath(),
                 fullPath = repository.pulseFolderPath(),
                 exists = repository.pulseFolderExists(),
             )
-
-            // Background-fetch Genius metadata for any song we haven't resolved
-            // yet. Throttled and fire-and-forget — the UI reacts when rows land
-            // in Room. Short-circuits cleanly if the Genius token isn't set.
-            enrichMetadataAsync()
+            launchLibraryEnrichment(force = false, userInitiated = false)
         }
     }
 
-    /**
-     * Walks the current library, hitting Genius only for songs we've never
-     * resolved before. Runs serially on the IO dispatcher so we don't spray
-     * the API with parallel requests — Genius is generous but not infinite.
-     * Silently no-ops on network errors or missing tokens.
-     */
-    private suspend fun enrichMetadataAsync() {
-        val library = repository.observeAllSongs().first()
-        for (song in library) {
-            metadataRepository.resolve(song)
-        }
-    }
-
-    /**
-     * Creates the Pulse folder at /Music/Pulse/. Returns true on success.
-     * After creation, re-checks folder state and triggers a rescan.
-     */
     fun createPulseFolder() {
         viewModelScope.launch(Dispatchers.IO) {
             val created = repository.createPulseFolder()
@@ -145,47 +108,7 @@ class LibraryViewModel(
     }
 
     fun refreshAllMetadata() {
-        if (_metadataRefreshState.value is MetadataRefreshState.Running) return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val library = repository.observeAllSongs().first()
-            val total = library.size
-            if (total == 0) {
-                _metadataRefreshState.value = MetadataRefreshState.Completed(
-                    refreshed = 0,
-                    total = 0,
-                    finishedAt = System.currentTimeMillis(),
-                )
-                return@launch
-            }
-
-            _metadataRefreshState.value = MetadataRefreshState.Running(
-                processed = 0,
-                total = total,
-                currentTitle = null,
-            )
-
-            try {
-                library.forEachIndexed { index, song ->
-                    _metadataRefreshState.value = MetadataRefreshState.Running(
-                        processed = index,
-                        total = total,
-                        currentTitle = song.title,
-                    )
-                    metadataRepository.refresh(song)
-                    lyricsRepository.refresh(song)
-                }
-                _metadataRefreshState.value = MetadataRefreshState.Completed(
-                    refreshed = total,
-                    total = total,
-                    finishedAt = System.currentTimeMillis(),
-                )
-            } catch (t: Throwable) {
-                _metadataRefreshState.value = MetadataRefreshState.Error(
-                    message = t.message ?: "Couldn't refresh metadata right now.",
-                )
-            }
-        }
+        launchLibraryEnrichment(force = true, userInitiated = true)
     }
 
     fun toggleLike(song: Song) {
@@ -195,7 +118,6 @@ class LibraryViewModel(
     fun observeSongsInPlaylist(playlistId: Long): Flow<List<Song>> =
         repository.observeSongsInPlaylist(playlistId)
 
-    /** Creates a new user playlist. Returns the new playlist's ID. */
     suspend fun createPlaylist(name: String): Long = repository.createPlaylist(name)
 
     suspend fun renamePlaylist(playlistId: Long, name: String) =
@@ -213,11 +135,6 @@ class LibraryViewModel(
     suspend fun playlistContainsSong(playlistId: Long, songId: Long): Boolean =
         repository.playlistContainsSong(playlistId, songId)
 
-    /**
-     * Fetches the top 4 songs for a playlist — used to build 2x2 mosaic
-     * thumbnails. Called from list items on-demand so playlists with many
-     * thumbnails don't block the UI.
-     */
     suspend fun getPlaylistThumbnailArt(playlistId: Long): List<Song> =
         repository.getThumbnailSongs(playlistId)
 
@@ -226,6 +143,130 @@ class LibraryViewModel(
 
     suspend fun getPlaylistSongCount(playlistId: Long): Int =
         repository.getPlaylistSongCount(playlistId)
+
+    private fun launchLibraryEnrichment(force: Boolean, userInitiated: Boolean) {
+        if (enrichmentJob?.isActive == true) {
+            if (!userInitiated) return
+            enrichmentJob?.cancel()
+        }
+
+        enrichmentJob = viewModelScope.launch(Dispatchers.IO) {
+            val library = repository.observeAllSongs().first()
+            val candidates = if (force) {
+                library
+            } else {
+                library.filter { song ->
+                    metadataRepository.needsBackgroundEnrichment(song) ||
+                        lyricsRepository.needsBackgroundFetch(song, metadataRepository.getCached(song.id))
+                }
+            }
+            val total = candidates.size
+            if (total == 0) {
+                _metadataRefreshState.value = MetadataRefreshState.Completed(
+                    refreshed = 0,
+                    total = 0,
+                    artistUpdates = 0,
+                    artworkUpdates = 0,
+                    lyricsUpdates = 0,
+                    finishedAt = System.currentTimeMillis(),
+                    userInitiated = userInitiated,
+                )
+                return@launch
+            }
+
+            var processed = 0
+            var artistUpdates = 0
+            var artworkUpdates = 0
+            var lyricsUpdates = 0
+            _metadataRefreshState.value = MetadataRefreshState.Running(
+                processed = 0,
+                total = total,
+                currentTitle = null,
+                artistUpdates = 0,
+                artworkUpdates = 0,
+                lyricsUpdates = 0,
+                userInitiated = userInitiated,
+            )
+
+            try {
+                candidates.chunked(ENRICHMENT_CONCURRENCY).forEach { chunk ->
+                    val outcomes = chunk.map { song ->
+                        async { enrichSong(song, force) }
+                    }.awaitAll()
+
+                    outcomes.forEach { outcome ->
+                        processed += 1
+                        if (outcome.artistUpdated) artistUpdates += 1
+                        if (outcome.artworkUpdated) artworkUpdates += 1
+                        if (outcome.lyricsUpdated) lyricsUpdates += 1
+                        _metadataRefreshState.value = MetadataRefreshState.Running(
+                            processed = processed,
+                            total = total,
+                            currentTitle = outcome.songTitle,
+                            artistUpdates = artistUpdates,
+                            artworkUpdates = artworkUpdates,
+                            lyricsUpdates = lyricsUpdates,
+                            userInitiated = userInitiated,
+                        )
+                    }
+                }
+
+                _metadataRefreshState.value = MetadataRefreshState.Completed(
+                    refreshed = processed,
+                    total = total,
+                    artistUpdates = artistUpdates,
+                    artworkUpdates = artworkUpdates,
+                    lyricsUpdates = lyricsUpdates,
+                    finishedAt = System.currentTimeMillis(),
+                    userInitiated = userInitiated,
+                )
+            } catch (t: Throwable) {
+                _metadataRefreshState.value = MetadataRefreshState.Error(
+                    message = t.message ?: "Couldn't refresh metadata right now.",
+                )
+            }
+        }
+    }
+
+    private suspend fun enrichSong(song: Song, force: Boolean): EnrichmentOutcome {
+        val metadataBefore = metadataRepository.getCached(song.id)
+        val lyricsBeforeFound = (metadataBefore?.lyricsResolvedAt ?: 0L) > 0L
+        val metadataAfter = if (force) {
+            metadataRepository.refresh(song)
+        } else {
+            metadataRepository.resolve(song)
+        }
+
+        val lyricsResult = if (
+            force ||
+            lyricsRepository.needsBackgroundFetch(song, metadataAfter)
+        ) {
+            if (force) lyricsRepository.refresh(song) else lyricsRepository.lyricsFor(song)
+        } else {
+            null
+        }
+
+        val lyricsAfterFound = when (lyricsResult) {
+            is LyricsResult.Found -> true
+            else -> (metadataRepository.getCached(song.id)?.lyricsResolvedAt ?: 0L) > 0L
+        }
+
+        return EnrichmentOutcome(
+            songTitle = song.title,
+            artistUpdated = metadataBefore?.resolvedArtist.isNullOrBlank() &&
+                !metadataAfter.resolvedArtist.isNullOrBlank(),
+            artworkUpdated = metadataBefore?.artworkUrl.isNullOrBlank() &&
+                !metadataAfter.artworkUrl.isNullOrBlank(),
+            lyricsUpdated = !lyricsBeforeFound && lyricsAfterFound,
+        )
+    }
+
+    private data class EnrichmentOutcome(
+        val songTitle: String,
+        val artistUpdated: Boolean,
+        val artworkUpdated: Boolean,
+        val lyricsUpdated: Boolean,
+    )
 
     private fun <T> Flow<T>.stateInEager(initial: T): StateFlow<T> =
         stateIn(viewModelScope, SharingStarted.Eagerly, initial)
@@ -242,16 +283,26 @@ class LibraryViewModel(
             val processed: Int,
             val total: Int,
             val currentTitle: String?,
+            val artistUpdates: Int,
+            val artworkUpdates: Int,
+            val lyricsUpdates: Int,
+            val userInitiated: Boolean,
         ) : MetadataRefreshState
         data class Completed(
             val refreshed: Int,
             val total: Int,
+            val artistUpdates: Int,
+            val artworkUpdates: Int,
+            val lyricsUpdates: Int,
             val finishedAt: Long,
+            val userInitiated: Boolean,
         ) : MetadataRefreshState
         data class Error(val message: String) : MetadataRefreshState
     }
 
     companion object {
+        private const val ENRICHMENT_CONCURRENCY = 4
+
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {

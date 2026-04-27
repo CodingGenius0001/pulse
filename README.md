@@ -351,6 +351,11 @@ updates to find the active line.
 
 ## Changelog
 
+### v0.5.18
+- Library scan now kicks off a faster background enrichment queue for unresolved artist, artwork, and lyrics instead of relying mostly on on-demand lookups
+- Metadata rows now track identity, artwork, and lyrics attempt state separately so incomplete songs retry the right stage instead of stalling blank
+- Full metadata refresh no longer deletes good metadata first, and lyrics/artwork retries now preserve existing successful results when a later retry misses
+
 ### v0.5.17
 - Settings adds a `Refresh all metadata` action with progress for retrying artist, album, artwork, and lyrics across the whole library
 - App-open update notifications now re-check correctly after notification permission is granted instead of silently sleeping through the first eligible launch

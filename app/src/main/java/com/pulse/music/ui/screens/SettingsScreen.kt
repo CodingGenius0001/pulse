@@ -208,8 +208,13 @@ private fun MetadataRefreshRow(
                 )
                 Text(
                     text = state.currentTitle?.takeIf { it.isNotBlank() }
-                        ?.let { "${state.processed + 1} of ${state.total} - $it" }
+                        ?.let { "${state.processed} of ${state.total} - $it" }
                         ?: "${state.processed} of ${state.total}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Artists ${state.artistUpdates} - Artwork ${state.artworkUpdates} - Lyrics ${state.lyricsUpdates}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -231,7 +236,7 @@ private fun MetadataRefreshRow(
                 subtitle = if (state.total == 0) {
                     "No songs are indexed yet"
                 } else {
-                    "Retried ${state.refreshed} of ${state.total} songs"
+                    "Retried ${state.refreshed} of ${state.total} songs - artists ${state.artistUpdates}, artwork ${state.artworkUpdates}, lyrics ${state.lyricsUpdates}"
                 },
                 leading = { SectionIcon(Icons.Filled.CheckCircle) },
                 onClick = onRefresh,

@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SongMetadata::class,
         SongLyrics::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class PulseDatabase : RoomDatabase() {
@@ -30,7 +30,7 @@ abstract class PulseDatabase : RoomDatabase() {
                 PulseDatabase::class.java,
                 "pulse.db",
             )
-                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
         }
 
@@ -61,6 +61,52 @@ abstract class PulseDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE song_metadata ADD COLUMN fetchedAt INTEGER NOT NULL DEFAULT 0")
                     db.execSQL("UPDATE song_metadata SET fetchedAt = strftime('%s','now') * 1000 WHERE fetchedAt = 0")
                 }
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!db.hasColumn("song_metadata", "identityResolvedAt")) {
+                    db.execSQL("ALTER TABLE song_metadata ADD COLUMN identityResolvedAt INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("song_metadata", "artworkAttemptedAt")) {
+                    db.execSQL("ALTER TABLE song_metadata ADD COLUMN artworkAttemptedAt INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("song_metadata", "artworkResolvedAt")) {
+                    db.execSQL("ALTER TABLE song_metadata ADD COLUMN artworkResolvedAt INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("song_metadata", "lyricsAttemptedAt")) {
+                    db.execSQL("ALTER TABLE song_metadata ADD COLUMN lyricsAttemptedAt INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("song_metadata", "lyricsResolvedAt")) {
+                    db.execSQL("ALTER TABLE song_metadata ADD COLUMN lyricsResolvedAt INTEGER NOT NULL DEFAULT 0")
+                }
+                db.execSQL(
+                    """
+                    UPDATE song_metadata
+                    SET identityResolvedAt = CASE
+                        WHEN identityResolvedAt = 0 AND (
+                            COALESCE(resolvedTitle, '') != '' OR
+                            COALESCE(resolvedArtist, '') != '' OR
+                            COALESCE(resolvedAlbum, '') != ''
+                        ) THEN fetchedAt
+                        ELSE identityResolvedAt
+                    END
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE song_metadata
+                    SET artworkAttemptedAt = CASE
+                        WHEN artworkAttemptedAt = 0 THEN fetchedAt
+                        ELSE artworkAttemptedAt
+                    END,
+                    artworkResolvedAt = CASE
+                        WHEN artworkResolvedAt = 0 AND COALESCE(artworkUrl, '') != '' THEN fetchedAt
+                        ELSE artworkResolvedAt
+                    END
+                    """.trimIndent()
+                )
             }
         }
 
@@ -103,6 +149,11 @@ abstract class PulseDatabase : RoomDatabase() {
                     overrideArtist TEXT,
                     overrideAlbum TEXT,
                     overrideAppliedAt INTEGER NOT NULL DEFAULT 0,
+                    identityResolvedAt INTEGER NOT NULL DEFAULT 0,
+                    artworkAttemptedAt INTEGER NOT NULL DEFAULT 0,
+                    artworkResolvedAt INTEGER NOT NULL DEFAULT 0,
+                    lyricsAttemptedAt INTEGER NOT NULL DEFAULT 0,
+                    lyricsResolvedAt INTEGER NOT NULL DEFAULT 0,
                     fetchedAt INTEGER NOT NULL DEFAULT 0
                 )
                 """.trimIndent()
