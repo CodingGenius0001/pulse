@@ -1087,7 +1087,9 @@ private fun FixMatchDialog(
                             scope.launch {
                                 runCatching { onSearch(title.trim(), artist.trim()) }
                                     .onSuccess { candidates = it }
-                                    .onFailure { errorMessage = error.message ?: "Search failed." }
+                                    .onFailure { throwable ->
+                                        errorMessage = throwable.message ?: "Search failed."
+                                    }
                                 isSearching = false
                             }
                         }
