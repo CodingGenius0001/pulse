@@ -795,7 +795,7 @@ private fun WaveformScrubber(
     }
 
     val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.28f,
+        targetValue = if (isPlaying) 0.52f else 0.16f,
         animationSpec = tween(durationMillis = 320),
         label = "waveAmplitude",
     )
@@ -838,7 +838,7 @@ private fun WaveformScrubber(
                 val pillWidth = 10.dp.toPx()
                 val pillHeight = 34.dp.toPx()
                 val tailPadding = 3.dp.toPx()
-                val crestSpan = 84.dp.toPx()
+                val crestSpan = 132.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
 
                 val rightTrackStart = pillX + pillWidth / 2f + 2.dp.toPx()
@@ -853,66 +853,44 @@ private fun WaveformScrubber(
 
                 val waveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)
                 if (waveEnd > 6f) {
-                    val maxAmp = 7.8.dp.toPx() * amplitude
-                    val step = 2.5f
-                    val travel = frameSeconds * 146f
-                    val crestStart = (waveEnd - crestSpan).coerceAtLeast(0f)
-                    val tailPath = Path()
-                    val crestPath = Path()
-                    var hasTailPoint = false
-                    var hasCrestPoint = false
+                    val maxAmp = 3.4.dp.toPx() * amplitude
+                    val step = 3.25f
+                    val travel = frameSeconds * 42f
+                    val path = Path()
+                    var hasPoint = false
 
                     fun amplitudeAt(distanceFromPill: Float): Float {
                         val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                        val crestBoost = 0.52f + 0.48f * sin(nearPill * PI.toFloat() / 2f)
-                        val tailFade = 0.78f + 0.22f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.7f)
+                        val crestBoost = 0.76f + 0.18f * sin(nearPill * PI.toFloat() / 2f)
+                        val tailFade = 0.84f + 0.08f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.45f)
                         return crestBoost * tailFade
                     }
 
                     var x = 0f
                     while (x <= waveEnd) {
                         val distanceFromPill = (waveEnd - x).coerceAtLeast(0f)
-                        val sourceX = (distanceFromPill * 1.12f) - travel
+                        val sourceX = (distanceFromPill * 0.82f) - travel
                         val offset = waveParts.sumOf { part ->
-                            val wavelength = (110f / part.cycles).coerceAtLeast(22f)
-                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * part.speed) + part.phase
-                            (sin(angle) * part.amplitude).toDouble()
+                            val wavelength = (176f / part.cycles).coerceAtLeast(56f)
+                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.32f + (part.speed * 0.18f))) + part.phase
+                            (sin(angle) * part.amplitude * 0.58f).toDouble()
                         }.toFloat() / waveParts.size
                         val y = centerY + (offset * maxAmp * amplitudeAt(distanceFromPill))
-                        if (!hasTailPoint) {
-                            tailPath.moveTo(x, y)
-                            hasTailPoint = true
+                        if (!hasPoint) {
+                            path.moveTo(x, y)
+                            hasPoint = true
                         } else {
-                            tailPath.lineTo(x, y)
-                        }
-                        if (x >= crestStart) {
-                            if (!hasCrestPoint) {
-                                crestPath.moveTo(x, y)
-                                hasCrestPoint = true
-                            } else {
-                                crestPath.lineTo(x, y)
-                            }
+                            path.lineTo(x, y)
                         }
                         x += step
                     }
 
-                    if (hasTailPoint) {
+                    if (hasPoint) {
                         drawPath(
-                            path = tailPath,
-                            color = waveColor.copy(alpha = 0.56f),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 2.4.dp.toPx(),
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round,
-                            ),
-                        )
-                    }
-                    if (hasCrestPoint) {
-                        drawPath(
-                            path = crestPath,
+                            path = path,
                             color = waveColor,
                             style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 3.4.dp.toPx(),
+                                width = 2.8.dp.toPx(),
                                 cap = StrokeCap.Round,
                                 join = StrokeJoin.Round,
                             ),
