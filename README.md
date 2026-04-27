@@ -13,7 +13,7 @@ enrichment so your library looks pretty even when your MP3s are missing tags.
 
 You need three things before the first CI run will produce installable APKs that can self-update:
 
-### 1. Genius API token (recommended)
+### 1. Genius API token (last resort)
 
 Pulse uses the Genius API for cover art + album metadata. Without a token everything still works — songs play, library scans — but tracks won't get richer metadata fetched online.
 
