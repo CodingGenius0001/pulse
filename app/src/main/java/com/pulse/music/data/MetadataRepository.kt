@@ -141,6 +141,8 @@ class MetadataRepository(
         }
         val fallbackArtwork = resolveArtworkFallback(
             input = resolvedInput,
+            fallbackInfo = fallbackInfo,
+            bestMusicBrainzMatch = bestMusicBrainzMatch,
             bestGeniusMatch = bestGeniusMatch,
         )
 
@@ -331,7 +333,7 @@ class MetadataRepository(
 
         val shortlist = candidates
             .map { hit -> hit to preliminaryScore(hit, input) }
-            .filter { (_, score) -> score >= 56 }
+            .filter { (_, score) -> score >= minimumGeniusShortlistScore(input) }
             .sortedByDescending { (_, score) -> score }
             .take(5)
             .map { it.first }
@@ -347,7 +349,7 @@ class MetadataRepository(
             )
         }
 
-        val minimumScore = if (input.album.isKnownAlbum()) 84 else 70
+        val minimumScore = minimumGeniusAcceptScore(input)
         return scored
             .filter { it.score >= minimumScore }
             .maxByOrNull { it.score }
@@ -531,7 +533,7 @@ class MetadataRepository(
             cached.resolvedArtist.cleanKey() == input.artist.cleanKey()
         if (hasManualOverrideWithoutArtwork) return true
 
-        val missingArtistButMatched = cached.resolvedArtist.isNullOrBlank() &&
+        val missingArtistButMatched = cached.resolvedArtist.isUnknownArtist() &&
             cached.resolvedTitle.cleanKey() == input.title.cleanKey()
         if (missingArtistButMatched) {
             return true
@@ -586,6 +588,19 @@ class MetadataRepository(
         else -> 52
     }
 
+    private fun minimumGeniusShortlistScore(input: MatchInput): Int = when {
+        input.artist.isKnownArtist() -> 56
+        input.album.isKnownAlbum() -> 48
+        else -> 40
+    }
+
+    private fun minimumGeniusAcceptScore(input: MatchInput): Int = when {
+        input.artist.isKnownArtist() && input.album.isKnownAlbum() -> 84
+        input.artist.isKnownArtist() -> 68
+        input.album.isKnownAlbum() -> 58
+        else -> 48
+    }
+
     private fun SongMetadata.overrideInput(): MatchInput? {
         if (!hasOverride()) return null
         return MatchInput(
@@ -599,10 +614,16 @@ class MetadataRepository(
         !overrideTitle.isNullOrBlank() || !overrideArtist.isNullOrBlank() || !overrideAlbum.isNullOrBlank()
 
     private fun SongMetadata.hasResolvedIdentity(): Boolean =
-        identityResolvedAt > 0L ||
-            !resolvedTitle.isNullOrBlank() ||
-            resolvedArtist.isKnownArtist() ||
-            resolvedAlbum.isKnownAlbum()
+        geniusId != null ||
+            !geniusUrl.isNullOrBlank() ||
+            (
+                !resolvedTitle.isNullOrBlank() &&
+                    resolvedArtist.isKnownArtist()
+                ) ||
+            (
+                resolvedArtist.isKnownArtist() &&
+                    resolvedAlbum.isKnownAlbum()
+                )
 
     private fun SongMetadata.hasResolvedArtwork(): Boolean =
         artworkResolvedAt > 0L || !artworkUrl.isNullOrBlank()
@@ -752,13 +773,29 @@ class MetadataRepository(
 
     private suspend fun resolveArtworkFallback(
         input: MatchInput,
+        fallbackInfo: LrcLibApi.TrackInfo?,
+        bestMusicBrainzMatch: MusicBrainzMatch?,
         bestGeniusMatch: GeniusMatch?,
     ): String? {
-        if (input.artist.isKnownArtist() && input.album.isKnownAlbum()) {
-            TheAudioDbApi.findAlbumArt(input.artist, input.album)
-                ?.takeIf { it.isNotBlank() }
-                ?.let { return it }
+        val artworkPairs = buildList {
+            add(input.artist to input.album)
+            add(
+                (bestMusicBrainzMatch?.details?.artist ?: bestMusicBrainzMatch?.hit?.artist).orEmpty() to
+                    bestMusicBrainzMatch?.details?.album.orEmpty(),
+            )
+            add(fallbackInfo?.artist.orEmpty() to fallbackInfo?.album.orEmpty())
+            add(bestGeniusMatch?.details?.artist.orEmpty() to bestGeniusMatch?.details?.album.orEmpty())
         }
+            .distinct()
+
+        artworkPairs.forEach { (artist, album) ->
+            if (artist.isKnownArtist() && album.isKnownAlbum()) {
+                TheAudioDbApi.findAlbumArt(artist, album)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { return it }
+            }
+        }
+
         return bestGeniusMatch?.details?.artworkUrl
             ?: bestGeniusMatch?.hit?.artworkUrl
     }

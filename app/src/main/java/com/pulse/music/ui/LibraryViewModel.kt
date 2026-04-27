@@ -253,8 +253,8 @@ class LibraryViewModel(
 
         return EnrichmentOutcome(
             songTitle = song.title,
-            artistUpdated = metadataBefore?.resolvedArtist.isNullOrBlank() &&
-                !metadataAfter.resolvedArtist.isNullOrBlank(),
+            artistUpdated = metadataBefore.artistMissingForCounting() &&
+                metadataAfter.resolvedArtist.isKnownArtistForCounting(),
             artworkUpdated = metadataBefore?.artworkUrl.isNullOrBlank() &&
                 !metadataAfter.artworkUrl.isNullOrBlank(),
             lyricsUpdated = !lyricsBeforeFound && lyricsAfterFound,
@@ -267,6 +267,14 @@ class LibraryViewModel(
         val artworkUpdated: Boolean,
         val lyricsUpdated: Boolean,
     )
+
+    private fun SongMetadata?.artistMissingForCounting(): Boolean =
+        this == null || resolvedArtist.isNullOrBlank() || !resolvedArtist.isKnownArtistForCounting()
+
+    private fun String?.isKnownArtistForCounting(): Boolean =
+        !isNullOrBlank() &&
+            !equals("Unknown artist", ignoreCase = true) &&
+            !equals("<unknown>", ignoreCase = true)
 
     private fun <T> Flow<T>.stateInEager(initial: T): StateFlow<T> =
         stateIn(viewModelScope, SharingStarted.Eagerly, initial)

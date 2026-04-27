@@ -235,6 +235,8 @@ private fun MetadataRefreshRow(
                 title = "Metadata refreshed",
                 subtitle = if (state.total == 0) {
                     "No songs are indexed yet"
+                } else if (state.artistUpdates == 0 && state.artworkUpdates == 0 && state.lyricsUpdates == 0) {
+                    "Retried ${state.refreshed} of ${state.total} songs - no new artist, artwork, or lyrics matches landed"
                 } else {
                     "Retried ${state.refreshed} of ${state.total} songs - artists ${state.artistUpdates}, artwork ${state.artworkUpdates}, lyrics ${state.lyricsUpdates}"
                 },
