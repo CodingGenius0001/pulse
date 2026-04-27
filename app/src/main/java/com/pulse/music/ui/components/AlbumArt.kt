@@ -30,12 +30,13 @@ import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
+import com.pulse.music.data.SongMetadata
 import com.pulse.music.util.gradientFor
 
 /**
  * Album art with a three-level fallback chain:
- * 1. Genius-resolved artwork URL from the Room cache.
- * 2. Embedded artwork from the audio file.
+ * 1. Resolved remote artwork URL from the Room cache.
+ * 2. Embedded artwork from the audio file only while remote identity is still unresolved.
  * 3. Deterministic gradient tile.
  *
  * The metadata row is observed, not read once, so covers appear as soon as
@@ -56,24 +57,27 @@ fun AlbumArt(
             return@Box
         }
 
-        val geniusArtUrl by produceState<String?>(initialValue = null, song.id) {
+        val metadata by produceState<SongMetadata?>(initialValue = null, song.id) {
             PulseApplication.get()
                 .metadataRepository
                 .observe(song.id)
-                .collect { value = it?.artworkUrl?.takeIf(String::isNotBlank) }
+                .collect { value = it }
         }
+        val remoteArtUrl = metadata?.artworkUrl?.takeIf(String::isNotBlank)
+        val remoteIdentityResolved =
+            !metadata?.resolvedTitle.isNullOrBlank() || !metadata?.resolvedArtist.isNullOrBlank()
 
-        LaunchedEffect(song.id, geniusArtUrl) {
-            if (geniusArtUrl.isNullOrBlank()) {
+        LaunchedEffect(song.id, remoteArtUrl) {
+            if (remoteArtUrl.isNullOrBlank()) {
                 PulseApplication.get().metadataRepository.resolve(song)
             }
         }
 
-        var useEmbeddedFallback by remember(song.id, geniusArtUrl) { mutableStateOf(false) }
-        val model: Any = if (!geniusArtUrl.isNullOrBlank() && !useEmbeddedFallback) {
-            geniusArtUrl.orEmpty()
-        } else {
-            song.albumArtUri
+        var useEmbeddedFallback by remember(song.id, remoteArtUrl, remoteIdentityResolved) { mutableStateOf(false) }
+        val model: Any? = when {
+            !remoteArtUrl.isNullOrBlank() && !useEmbeddedFallback -> remoteArtUrl
+            !remoteIdentityResolved -> song.albumArtUri
+            else -> null
         }
 
         val painter = rememberAsyncImagePainter(
@@ -84,9 +88,10 @@ fun AlbumArt(
         )
         val state = painter.state
 
-        LaunchedEffect(state, geniusArtUrl, useEmbeddedFallback) {
+        LaunchedEffect(state, remoteArtUrl, remoteIdentityResolved, useEmbeddedFallback) {
             if (state is AsyncImagePainter.State.Error &&
-                !geniusArtUrl.isNullOrBlank() &&
+                !remoteArtUrl.isNullOrBlank() &&
+                !remoteIdentityResolved &&
                 !useEmbeddedFallback
             ) {
                 useEmbeddedFallback = true
@@ -98,7 +103,7 @@ fun AlbumArt(
             modifier = Modifier.fillMaxSize(),
         )
 
-        if (state !is AsyncImagePainter.State.Error) {
+        if (model != null && state !is AsyncImagePainter.State.Error) {
             Image(
                 painter = painter,
                 contentDescription = "${song.album} cover",

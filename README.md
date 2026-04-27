@@ -81,6 +81,12 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.13
+
+- Now Playing restores a clearly visible moving waveform across the scrubber instead of the near-flat line from the previous pass.
+- Metadata completion keeps trying to fill missing artist names and artwork automatically, using LRCLIB identity hints plus a stricter MusicBrainz, TheAudioDB, and Genius fallback chain.
+- Inline now-playing lyrics are locked to one line with ellipsis so they no longer push the title and controls downward.
+
 ## What's new in v0.5.12
 
 - Metadata enrichment now retries more aggressively for unresolved and artwork-missing tracks, so covers are fetched automatically before the user has to intervene.
@@ -324,6 +330,11 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.13
+- Visible full-width waveform scrubber instead of the near-flat played-only line
+- Automatic artist and artwork completion now keeps falling through LRCLIB, MusicBrainz, TheAudioDB, and Genius until remote metadata is exhausted
+- Inline now-playing lyric is always one line with ellipsis and no vertical layout push
 
 ### v0.5.12
 - Automatic metadata and artwork retries for unresolved songs, plus stronger fallback art lookups

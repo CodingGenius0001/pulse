@@ -6,14 +6,16 @@ import com.pulse.music.network.LrcLibApi
 import com.pulse.music.network.MusicBrainzApi
 import com.pulse.music.network.SearchHit
 import com.pulse.music.network.SongDetails
+import com.pulse.music.network.TheAudioDbApi
 import kotlinx.coroutines.flow.Flow
+import kotlin.math.abs
 
 /**
  * Mediates between the UI and remote metadata providers, backed by Room.
  *
  * Matching is conservative by design: we prefer "unresolved" over wrong data.
- * MusicBrainz + Cover Art Archive is the primary path, while Genius remains a
- * secondary fallback for cases where MusicBrainz cannot produce a safe match.
+ * MusicBrainz + Cover Art Archive is the primary path, then TheAudioDB, with
+ * Genius used as the final remote artwork / metadata fallback.
  */
 class MetadataRepository(
     private val metadataDao: MetadataDao,
@@ -56,50 +58,55 @@ class MetadataRepository(
             return existing
         }
 
+        val fallbackInfo = LrcLibApi.findBestTrackInfo(
+            trackName = effectiveInput.title,
+            artistName = effectiveInput.artist,
+            albumName = effectiveInput.album,
+            durationSeconds = song.durationMs / 1000,
+        ) ?: searchLrcLibIdentity(
+            title = effectiveInput.title,
+            durationSeconds = song.durationMs / 1000,
+        )
+        val enrichedInput = effectiveInput.mergedWith(fallbackInfo)
+
         val primaryOutcome = MusicBrainzApi.searchRecordings(
             title = effectiveInput.title,
             artist = effectiveInput.artist,
             album = effectiveInput.album,
         )
-        val fallbackInfo = if (primaryOutcome is MusicBrainzApi.SearchOutcome.Found) {
-            null
-        } else {
-            LrcLibApi.findBestTrackInfo(
-                trackName = effectiveInput.title,
-                artistName = effectiveInput.artist,
-                albumName = effectiveInput.album,
-                durationSeconds = song.durationMs / 1000,
-            )
-        }
-
         val primaryCandidates = when (primaryOutcome) {
             is MusicBrainzApi.SearchOutcome.Found -> primaryOutcome.candidates
             MusicBrainzApi.SearchOutcome.NoMatch -> emptyList()
             MusicBrainzApi.SearchOutcome.Unavailable -> emptyList()
         }
+
         val retriedCandidates = buildList {
-            if (
-                primaryCandidates.isEmpty() &&
-                fallbackInfo.hasUsefulArtistFor(effectiveInput) &&
-                fallbackInfo.matchesSongContext(effectiveInput)
-            ) {
+            val shouldRetryWithFallbackIdentity =
+                fallbackInfo != null &&
+                    fallbackInfo.matchesSongContext(enrichedInput) &&
+                    (
+                        primaryCandidates.isEmpty() ||
+                            fallbackInfo.hasUsefulArtistFor(effectiveInput) ||
+                            effectiveInput.album.isUnknownAlbum()
+                        )
+            if (shouldRetryWithFallbackIdentity) {
                 when (
                     val retried = MusicBrainzApi.searchRecordings(
-                        title = effectiveInput.title,
-                        artist = fallbackInfo?.artist.orEmpty(),
-                        album = fallbackInfo?.album.orEmpty().ifBlank { effectiveInput.album },
+                        title = enrichedInput.title,
+                        artist = enrichedInput.artist,
+                        album = enrichedInput.album,
                     )
                 ) {
                     is MusicBrainzApi.SearchOutcome.Found -> addAll(retried.candidates)
                     else -> Unit
                 }
             }
-            if (primaryCandidates.isEmpty()) {
+            if (primaryCandidates.isEmpty() || enrichedInput.artist.isUnknownArtist()) {
                 when (
                     val titleOnly = MusicBrainzApi.searchRecordings(
-                        title = effectiveInput.title,
+                        title = enrichedInput.title,
                         artist = "",
-                        album = effectiveInput.album,
+                        album = enrichedInput.album,
                     )
                 ) {
                     is MusicBrainzApi.SearchOutcome.Found -> addAll(titleOnly.candidates)
@@ -110,29 +117,49 @@ class MetadataRepository(
 
         val bestMusicBrainzMatch = pickBestMusicBrainzMatch(
             candidates = (primaryCandidates + retriedCandidates).distinctBy { it.recordingId },
-            input = effectiveInput,
+            input = enrichedInput,
         )
+        val resolvedInput = bestMusicBrainzMatch
+            ?.toMatchInput(fallbackInfo, enrichedInput)
+            ?: fallbackInfo?.toMatchInput(enrichedInput)
+            ?: enrichedInput
 
-        val bestGeniusMatch = if (bestMusicBrainzMatch == null) {
+        val bestGeniusMatch = if (
+            bestMusicBrainzMatch == null ||
+            bestMusicBrainzMatch.details?.artworkUrl.isNullOrBlank() ||
+            bestMusicBrainzMatch.details?.artist.isUnknownArtist()
+        ) {
             pickBestGeniusMatch(
-                candidates = searchGeniusCandidates(effectiveInput, fallbackInfo),
-                input = effectiveInput,
+                candidates = searchGeniusCandidates(resolvedInput, fallbackInfo),
+                input = resolvedInput,
             )
         } else {
             null
         }
+        val fallbackArtwork = resolveArtworkFallback(
+            input = resolvedInput,
+            bestGeniusMatch = bestGeniusMatch,
+        )
 
         val resolvedRecord = when {
             bestMusicBrainzMatch != null -> {
                 val details = bestMusicBrainzMatch.details
                 SongMetadata(
                     songId = song.id,
-                    geniusUrl = details?.url,
-                    resolvedTitle = details?.title ?: bestMusicBrainzMatch.hit.title.takeIf { it.isNotBlank() } ?: effectiveInput.title,
-                    resolvedArtist = details?.artist ?: bestMusicBrainzMatch.hit.artist ?: effectiveInput.artist,
-                    resolvedAlbum = details?.album ?: effectiveInput.album.takeIf { it.isNotBlank() },
-                    artworkUrl = details?.artworkUrl,
-                    releaseDate = details?.releaseDate,
+                    geniusUrl = details?.url ?: bestGeniusMatch?.details?.url ?: bestGeniusMatch?.hit?.url,
+                    resolvedTitle = details?.title
+                        ?: bestMusicBrainzMatch.hit.title.takeIf { it.isNotBlank() }
+                        ?: fallbackInfo?.title?.takeIf { it.isNotBlank() }
+                        ?: resolvedInput.title,
+                    resolvedArtist = details?.artist
+                        ?: bestMusicBrainzMatch.hit.artist
+                        ?: fallbackInfo?.artist?.takeIf { !it.isNullOrBlank() }
+                        ?: resolvedInput.artist,
+                    resolvedAlbum = details?.album
+                        ?: fallbackInfo?.album?.takeIf { !it.isNullOrBlank() }
+                        ?: resolvedInput.album.takeIf { it.isNotBlank() },
+                    artworkUrl = details?.artworkUrl ?: fallbackArtwork,
+                    releaseDate = details?.releaseDate ?: bestGeniusMatch?.details?.releaseDate,
                     overrideTitle = overrideToPersist?.title,
                     overrideArtist = overrideToPersist?.artist,
                     overrideAlbum = overrideToPersist?.album,
@@ -146,10 +173,15 @@ class MetadataRepository(
                     songId = song.id,
                     geniusId = bestGeniusMatch.hit.id,
                     geniusUrl = details?.url ?: bestGeniusMatch.hit.url,
-                    resolvedTitle = details?.title ?: bestGeniusMatch.hit.title ?: effectiveInput.title,
-                    resolvedArtist = details?.artist ?: bestGeniusMatch.hit.artist ?: effectiveInput.artist,
-                    resolvedAlbum = details?.album ?: effectiveInput.album.takeIf { it.isNotBlank() },
-                    artworkUrl = details?.artworkUrl ?: bestGeniusMatch.hit.artworkUrl,
+                    resolvedTitle = details?.title ?: bestGeniusMatch.hit.title ?: resolvedInput.title,
+                    resolvedArtist = details?.artist
+                        ?: bestGeniusMatch.hit.artist
+                        ?: fallbackInfo?.artist?.takeIf { !it.isNullOrBlank() }
+                        ?: resolvedInput.artist,
+                    resolvedAlbum = details?.album
+                        ?: fallbackInfo?.album?.takeIf { !it.isNullOrBlank() }
+                        ?: resolvedInput.album.takeIf { it.isNotBlank() },
+                    artworkUrl = details?.artworkUrl ?: bestGeniusMatch.hit.artworkUrl ?: fallbackArtwork,
                     releaseDate = details?.releaseDate,
                     overrideTitle = overrideToPersist?.title,
                     overrideArtist = overrideToPersist?.artist,
@@ -158,10 +190,17 @@ class MetadataRepository(
                 )
             }
 
-            fallbackInfo != null && fallbackInfo.matchesSongContext(effectiveInput) -> {
-                fallbackInfo.toMetadata(
+            fallbackInfo != null && fallbackInfo.matchesSongContext(enrichedInput) -> {
+                SongMetadata(
                     songId = song.id,
-                    override = overrideToPersist,
+                    resolvedTitle = fallbackInfo.title.takeIf { it.isNotBlank() },
+                    resolvedArtist = fallbackInfo.artist.takeIf { !it.isNullOrBlank() },
+                    resolvedAlbum = fallbackInfo.album.takeIf { !it.isNullOrBlank() },
+                    artworkUrl = fallbackArtwork,
+                    overrideTitle = overrideToPersist?.title,
+                    overrideArtist = overrideToPersist?.artist,
+                    overrideAlbum = overrideToPersist?.album,
+                    overrideAppliedAt = if (overrideToPersist != null) System.currentTimeMillis() else 0,
                 )
             }
 
@@ -171,6 +210,7 @@ class MetadataRepository(
                     resolvedTitle = overrideToPersist.title.takeIf { it.isNotBlank() },
                     resolvedArtist = overrideToPersist.artist.takeIf { it.isNotBlank() },
                     resolvedAlbum = overrideToPersist.album.takeIf { it.isNotBlank() },
+                    artworkUrl = fallbackArtwork,
                     overrideTitle = overrideToPersist.title,
                     overrideArtist = overrideToPersist.artist,
                     overrideAlbum = overrideToPersist.album,
@@ -225,7 +265,7 @@ class MetadataRepository(
                 val retried = GeniusApi.searchForMetadata(
                     title = input.title,
                     artist = fallbackInfo?.artist.orEmpty(),
-                    album = input.album,
+                    album = fallbackInfo?.album.orEmpty().ifBlank { input.album },
                 )
             ) {
                 is GeniusSearchOutcome.Found -> retried.hits
@@ -457,6 +497,12 @@ class MetadataRepository(
             cached.resolvedArtist.cleanKey() == input.artist.cleanKey()
         if (hasManualOverrideWithoutArtwork) return true
 
+        val missingArtistButMatched = cached.resolvedArtist.isNullOrBlank() &&
+            cached.resolvedTitle.cleanKey() == input.title.cleanKey()
+        if (missingArtistButMatched && System.currentTimeMillis() - cached.fetchedAt >= ARTWORK_RETRY_WINDOW_MS) {
+            return true
+        }
+
         val missingArtworkButMatched = cached.artworkUrl.isNullOrBlank() &&
             cached.resolvedTitle.cleanKey() == input.title.cleanKey() &&
             (
@@ -497,6 +543,13 @@ class MetadataRepository(
             album = album.trim().ifBlank { song.album },
         )
 
+    private fun MatchInput.mergedWith(fallback: LrcLibApi.TrackInfo?): MatchInput =
+        MatchInput(
+            title = fallback?.title?.takeIf { it.isNotBlank() } ?: title,
+            artist = if (artist.isKnownArtist()) artist else fallback?.artist.orEmpty().ifBlank { artist },
+            album = if (album.isKnownAlbum()) album else fallback?.album.orEmpty().ifBlank { album },
+        )
+
     private fun MatchInput.matches(song: Song): Boolean =
         title == song.title && artist == song.artist && album == song.album
 
@@ -523,16 +576,42 @@ class MetadataRepository(
         return !artist.isNullOrBlank() && !artist.isUnknownArtist()
     }
 
-    private fun LrcLibApi.TrackInfo.toMetadata(songId: Long, override: MatchInput?): SongMetadata =
-        SongMetadata(
-            songId = songId,
-            resolvedTitle = title.takeIf { it.isNotBlank() },
-            resolvedArtist = artist.takeIf { !it.isNullOrBlank() },
-            resolvedAlbum = album.takeIf { !it.isNullOrBlank() },
-            overrideTitle = override?.title,
-            overrideArtist = override?.artist,
-            overrideAlbum = override?.album,
-            overrideAppliedAt = if (override != null) System.currentTimeMillis() else 0,
+    private suspend fun searchLrcLibIdentity(
+        title: String,
+        durationSeconds: Long,
+    ): LrcLibApi.TrackInfo? {
+        val candidates = LrcLibApi.searchCandidates(
+            trackName = title,
+            durationSeconds = durationSeconds,
+        )
+        return candidates.firstOrNull { candidate ->
+            candidate.title.cleanKey() == title.cleanKey() &&
+                candidate.artist.isKnownArtist() &&
+                (
+                    candidate.durationSeconds == null ||
+                        abs(candidate.durationSeconds - durationSeconds) <= 12
+                    )
+        } ?: candidates.firstOrNull()
+    }
+
+    private suspend fun resolveArtworkFallback(
+        input: MatchInput,
+        bestGeniusMatch: GeniusMatch?,
+    ): String? {
+        if (input.artist.isKnownArtist() && input.album.isKnownAlbum()) {
+            TheAudioDbApi.findAlbumArt(input.artist, input.album)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+        }
+        return bestGeniusMatch?.details?.artworkUrl
+            ?: bestGeniusMatch?.hit?.artworkUrl
+    }
+
+    private fun LrcLibApi.TrackInfo.toMatchInput(fallbackInput: MatchInput): MatchInput =
+        MatchInput(
+            title = title.takeIf { it.isNotBlank() } ?: fallbackInput.title,
+            artist = artist?.takeIf { it.isNotBlank() } ?: fallbackInput.artist,
+            album = album?.takeIf { it.isNotBlank() } ?: fallbackInput.album,
         )
 
     private fun String?.isUnknownArtist(): Boolean =
@@ -568,6 +647,15 @@ class MetadataRepository(
         val hit: MusicBrainzApi.SearchCandidate,
         val details: MusicBrainzApi.RecordingDetails?,
         val score: Int,
+    )
+
+    private fun MusicBrainzMatch.toMatchInput(
+        fallback: LrcLibApi.TrackInfo?,
+        fallbackInput: MatchInput,
+    ): MatchInput = MatchInput(
+        title = details?.title ?: hit.title.takeIf { it.isNotBlank() } ?: fallback?.title ?: fallbackInput.title,
+        artist = details?.artist ?: hit.artist ?: fallback?.artist ?: fallbackInput.artist,
+        album = details?.album ?: fallback?.album ?: fallbackInput.album,
     )
 
     private companion object {

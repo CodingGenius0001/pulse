@@ -122,7 +122,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
-import kotlin.math.cos
+import kotlin.math.abs
 import kotlin.math.sin
 
 @Composable
@@ -571,23 +571,30 @@ private fun shareSong(
 private fun SingleLineLyric(
     line: String?,
 ) {
-    AnimatedContent(
-        targetState = line,
-        transitionSpec = {
-            (fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 }).togetherWith(fadeOut(tween(200)))
-        },
-        label = "singleLineLyric",
-    ) { currentLine ->
-        if (currentLine != null) {
-            Text(
-                text = currentLine,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = line,
+            transitionSpec = {
+                (fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 }).togetherWith(fadeOut(tween(200)))
+            },
+            label = "singleLineLyric",
+        ) { currentLine ->
+            if (currentLine != null) {
+                Text(
+                    text = currentLine,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
@@ -773,23 +780,23 @@ private fun WaveformScrubber(
 
     val waveColor = PulseTheme.colors.accentViolet
     val pillColor = PulseTheme.colors.accentCream
-    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
+    val inactiveWaveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
 
     val waveParts = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        List(3) {
+        List(4) {
             WavePart(
-                cycles = random.nextDouble(0.9, 1.9).toFloat(),
-                amplitude = random.nextDouble(0.78, 1.26).toFloat(),
-                speed = random.nextDouble(0.14, 0.34).toFloat(),
+                cycles = random.nextDouble(1.15, 2.8).toFloat(),
+                amplitude = random.nextDouble(0.9, 1.45).toFloat(),
+                speed = random.nextDouble(0.1, 0.24).toFloat(),
                 phase = random.nextDouble(0.0, PI * 2).toFloat(),
             )
         }
     }
 
     val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.36f,
-        animationSpec = tween(durationMillis = 420),
+        targetValue = if (isPlaying) 1f else 0.55f,
+        animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
     val frameSeconds by produceState(initialValue = 0f) {
@@ -827,66 +834,61 @@ private fun WaveformScrubber(
             Canvas(modifier = Modifier.fillMaxWidth().height(48.dp)) {
                 val width = size.width
                 val centerY = size.height / 2f
-                val trackHeight = 4.dp.toPx()
                 val pillWidth = 10.dp.toPx()
                 val pillHeight = 34.dp.toPx()
-                val tailPadding = 3.dp.toPx()
-                val crestSpan = 152.dp.toPx()
+                val tailPadding = 4.dp.toPx()
+                val crestSpan = 196.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
+                val waveInset = 4.dp.toPx()
+                val maxAmp = 9.2.dp.toPx() * amplitude
+                val step = 1.5f
+                val travel = frameSeconds * 7.2f
+                val path = Path()
+                var hasPoint = false
 
-                val rightTrackStart = pillX + pillWidth / 2f + 2.dp.toPx()
-                if (rightTrackStart < width) {
-                    drawRoundRect(
-                        color = inactiveColor,
-                        topLeft = Offset(rightTrackStart, centerY - trackHeight / 2f),
-                        size = Size(width - rightTrackStart, trackHeight),
-                        cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f),
-                    )
+                fun amplitudeAt(x: Float): Float {
+                    val distanceFromPill = abs(pillX - x)
+                    val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
+                    val crestBoost = 0.82f + 0.24f * sin(nearPill * PI.toFloat() / 2f)
+                    return crestBoost
                 }
 
-                val waveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)
-                if (waveEnd > 6f) {
-                    val maxAmp = 7.8.dp.toPx() * amplitude
-                    val step = 1.8f
-                    val travel = frameSeconds * 11f
-                    val path = Path()
-                    var hasPoint = false
-
-                    fun amplitudeAt(distanceFromPill: Float): Float {
-                        val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                        val crestBoost = 0.72f + 0.42f * sin(nearPill * PI.toFloat() / 2f)
-                        val tailFade = 0.58f + 0.22f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.35f)
-                        return crestBoost * tailFade
+                var x = waveInset
+                while (x <= width - waveInset) {
+                    val sourceX = (x * 0.92f) - travel
+                    val offset = waveParts.sumOf { part ->
+                        val wavelength = (146f / part.cycles).coerceAtLeast(52f)
+                        val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.56f + (part.speed * 0.28f))) + part.phase
+                        (sin(angle) * part.amplitude).toDouble()
+                    }.toFloat() / waveParts.size
+                    val y = centerY + (offset * maxAmp * amplitudeAt(x))
+                    if (!hasPoint) {
+                        path.moveTo(x, y)
+                        hasPoint = true
+                    } else {
+                        path.lineTo(x, y)
                     }
+                    x += step
+                }
 
-                    var x = 0f
-                    while (x <= waveEnd) {
-                        val distanceFromPill = (waveEnd - x).coerceAtLeast(0f)
-                        val sourceX = (distanceFromPill * 0.94f) - travel
-                        val offset = waveParts.sumOf { part ->
-                            val wavelength = (184f / part.cycles).coerceAtLeast(92f)
-                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.34f + (part.speed * 0.18f))) + part.phase
-                            (sin(angle) * part.amplitude).toDouble()
-                        }.toFloat() / waveParts.size
-                        val y = centerY + (offset * maxAmp * amplitudeAt(distanceFromPill))
-                        if (!hasPoint) {
-                            path.moveTo(x, y)
-                            hasPoint = true
-                        } else {
-                            path.lineTo(x, y)
-                        }
-                        x += step
+                if (hasPoint) {
+                    val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 3.3.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                    )
+                    clipRect(left = pillX + pillWidth / 2f + tailPadding) {
+                        drawPath(
+                            path = path,
+                            color = inactiveWaveColor,
+                            style = stroke,
+                        )
                     }
-
-                    if (hasPoint) {
+                    clipRect(right = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)) {
                         drawPath(
                             path = path,
                             color = waveColor,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 3.2.dp.toPx(),
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round,
-                            ),
+                            style = stroke,
                         )
                     }
                 }
