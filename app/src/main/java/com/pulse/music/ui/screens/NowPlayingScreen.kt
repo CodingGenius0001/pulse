@@ -883,7 +883,7 @@ private fun WaveformScrubber(
                         color = inactiveTrackColor,
                         start = Offset(inactiveTrackStart, centerY),
                         end = Offset(width - waveInset, centerY),
-                        width = 3.3.dp.toPx(),
+                        strokeWidth = 3.3.dp.toPx(),
                         cap = StrokeCap.Round,
                     )
                 }
