@@ -30,12 +30,20 @@ abstract class PulseDatabase : RoomDatabase() {
                 PulseDatabase::class.java,
                 "pulse.db",
             )
-                // Destructive migration is fine at this stage — if the schema
-                // version bumps, we wipe the DB and rescan. Users lose likes
-                // and playlists on app updates; acceptable tradeoff for pre-1.0.
-                // Swap to proper Migration objects before a real release.
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
+        }
+
+        private val MIGRATION_1_5 = object : Migration(1, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                migrateLegacySchemaToV5(db)
+            }
+        }
+
+        private val MIGRATION_2_5 = object : Migration(2, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                migrateLegacySchemaToV5(db)
+            }
         }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -56,6 +64,66 @@ abstract class PulseDatabase : RoomDatabase() {
             }
         }
 
+        private fun migrateLegacySchemaToV5(db: SupportSQLiteDatabase) {
+            if (db.hasTable("songs")) {
+                if (!db.hasColumn("songs", "playCount")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN playCount INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("songs", "lastPlayedAt")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN lastPlayedAt INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("songs", "liked")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN liked INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+
+            if (db.hasTable("playlists") && !db.hasColumn("playlists", "systemType")) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN systemType TEXT")
+            }
+
+            if (db.hasTable("playlist_song_cross_ref") && !db.hasColumn("playlist_song_cross_ref", "addedAt")) {
+                db.execSQL("ALTER TABLE playlist_song_cross_ref ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "UPDATE playlist_song_cross_ref SET addedAt = strftime('%s','now') * 1000 WHERE addedAt = 0"
+                )
+            }
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS song_metadata (
+                    songId INTEGER NOT NULL PRIMARY KEY,
+                    geniusId INTEGER,
+                    geniusUrl TEXT,
+                    resolvedTitle TEXT,
+                    resolvedArtist TEXT,
+                    resolvedAlbum TEXT,
+                    artworkUrl TEXT,
+                    releaseDate TEXT,
+                    overrideTitle TEXT,
+                    overrideArtist TEXT,
+                    overrideAlbum TEXT,
+                    overrideAppliedAt INTEGER NOT NULL DEFAULT 0,
+                    fetchedAt INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            db.execSQL("UPDATE song_metadata SET fetchedAt = strftime('%s','now') * 1000 WHERE fetchedAt = 0")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS song_lyrics (
+                    songId INTEGER NOT NULL PRIMARY KEY,
+                    syncedLyrics TEXT,
+                    plainLyrics TEXT,
+                    instrumental INTEGER NOT NULL DEFAULT 0,
+                    notFound INTEGER NOT NULL DEFAULT 0,
+                    fetchedAt INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            db.execSQL("UPDATE song_lyrics SET fetchedAt = strftime('%s','now') * 1000 WHERE fetchedAt = 0")
+        }
+
         private fun SupportSQLiteDatabase.hasColumn(table: String, column: String): Boolean {
             query("PRAGMA table_info($table)").use { cursor ->
                 val nameIndex = cursor.getColumnIndex("name")
@@ -66,6 +134,15 @@ abstract class PulseDatabase : RoomDatabase() {
                 }
             }
             return false
+        }
+
+        private fun SupportSQLiteDatabase.hasTable(table: String): Boolean {
+            query(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                arrayOf(table),
+            ).use { cursor ->
+                return cursor.moveToFirst()
+            }
         }
     }
 }

@@ -81,6 +81,13 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.14
+
+- Now Playing drops the extra top status copy and rebalances the layout so the artwork-and-title card sits higher while transport controls stay anchored lower.
+- Inline lyrics get a larger fixed slot under the artwork, which gives longer lines more room without pushing the player controls downward.
+- The scrubber wave is now animated only before the play pill, with a flat inactive line after it.
+- Metadata and lyrics recovery are more aggressive after fresh installs or cleared app data, especially for tracks that start with weak local tags.
+
 ## What's new in v0.5.13
 
 - Now Playing restores a clearly visible moving waveform across the scrubber instead of the near-flat line from the previous pass.
@@ -330,6 +337,11 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.14
+- Higher Now Playing card layout with more room for inline lyrics and less dead space at the top
+- Active moving wave only before the play pill, with a flat inactive track after it
+- Looser title-first metadata and lyrics recovery after app data resets or weak local tags
 
 ### v0.5.13
 - Visible full-width waveform scrubber instead of the near-flat played-only line

@@ -106,7 +106,19 @@ class LyricsRepository(
             artist = song.artist,
             album = song.album,
         )
-        return listOf(primary, fallback).distinct()
+        val titleOnly = LookupRequest(
+            title = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title,
+            artist = "",
+            album = "",
+        )
+        val rawTitleOnly = LookupRequest(
+            title = song.title,
+            artist = "",
+            album = "",
+        )
+        return listOf(primary, fallback, titleOnly, rawTitleOnly)
+            .filter { it.title.isNotBlank() }
+            .distinct()
     }
 
     private data class LookupRequest(

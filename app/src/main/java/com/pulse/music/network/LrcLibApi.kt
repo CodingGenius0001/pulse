@@ -29,7 +29,7 @@ object LrcLibApi {
     )
 
     private const val BASE_URL = "https://lrclib.net/api"
-    private const val USER_AGENT = "Pulse-Android/0.5.13 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.14 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -58,10 +58,13 @@ object LrcLibApi {
         val knownArtist = artistName.isKnownArtist()
         val knownAlbum = albumName.isKnownAlbum()
         if (!knownArtist && !knownAlbum) {
-            // With neither artist nor album we only have a raw title, which is too
-            // ambiguous for lyrics lookups. Better to retry later with enriched
-            // metadata than cache the wrong song.
-            return@withContext LrcLibResponse.NotFound
+            return@withContext queryFallback(
+                query = cleanTrack,
+                expectedTrack = cleanTrack,
+                expectedArtist = null,
+                expectedAlbum = null,
+                durationSeconds = durationSeconds,
+            )
         }
         if (knownArtist) {
             val exact = exactGet(cleanTrack, artistName, albumName, durationSeconds)
@@ -113,7 +116,22 @@ object LrcLibApi {
 
         val knownArtist = artistName.isKnownArtist()
         val knownAlbum = albumName.isKnownAlbum()
-        if (!knownArtist && !knownAlbum) return@withContext null
+        if (!knownArtist && !knownAlbum) {
+            searchTrackInfo(
+                trackName = cleanTrack,
+                artistName = null,
+                albumName = null,
+                durationSeconds = durationSeconds,
+            )?.let { return@withContext it }
+
+            return@withContext queryTrackInfo(
+                query = cleanTrack,
+                expectedTrack = cleanTrack,
+                expectedArtist = null,
+                expectedAlbum = null,
+                durationSeconds = durationSeconds,
+            )
+        }
         if (knownArtist) {
             exactGetInfo(cleanTrack, artistName, albumName, durationSeconds)?.let { return@withContext it }
         }
@@ -431,7 +449,7 @@ object LrcLibApi {
         val minimumScore = when {
             expectedArtist.isKnownArtist() -> 56
             expectedAlbum?.isKnownAlbum() == true -> 74
-            else -> 86
+            else -> 56
         }
         return useful
             .map { it to scoreCandidate(it, expectedTrack, expectedArtist, expectedAlbum, durationSeconds) }

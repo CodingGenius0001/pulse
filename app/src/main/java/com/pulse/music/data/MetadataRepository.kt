@@ -70,9 +70,9 @@ class MetadataRepository(
         val enrichedInput = effectiveInput.mergedWith(fallbackInfo)
 
         val primaryOutcome = MusicBrainzApi.searchRecordings(
-            title = effectiveInput.title,
-            artist = effectiveInput.artist,
-            album = effectiveInput.album,
+            title = enrichedInput.title,
+            artist = enrichedInput.artist,
+            album = enrichedInput.album,
         )
         val primaryCandidates = when (primaryOutcome) {
             is MusicBrainzApi.SearchOutcome.Found -> primaryOutcome.candidates
@@ -584,14 +584,20 @@ class MetadataRepository(
             trackName = title,
             durationSeconds = durationSeconds,
         )
-        return candidates.firstOrNull { candidate ->
+        val exactDurationMatch = candidates.firstOrNull { candidate ->
             candidate.title.cleanKey() == title.cleanKey() &&
                 candidate.artist.isKnownArtist() &&
                 (
                     candidate.durationSeconds == null ||
                         abs(candidate.durationSeconds - durationSeconds) <= 12
                     )
-        } ?: candidates.firstOrNull()
+        }
+        if (exactDurationMatch != null) return exactDurationMatch
+
+        val broaderCandidates = LrcLibApi.searchCandidates(trackName = title)
+        return broaderCandidates.firstOrNull { candidate ->
+            candidate.title.cleanKey() == title.cleanKey() && candidate.artist.isKnownArtist()
+        } ?: candidates.firstOrNull() ?: broaderCandidates.firstOrNull()
     }
 
     private suspend fun resolveArtworkFallback(

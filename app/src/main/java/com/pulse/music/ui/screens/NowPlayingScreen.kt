@@ -85,7 +85,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -203,12 +202,12 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CircleButton(onClick = onBack, size = 42.dp) {
@@ -219,24 +218,14 @@ fun NowPlayingScreen(
                         modifier = Modifier.size(18.dp),
                     )
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "NOW PLAYING",
-                        color = PulseTheme.colors.accentViolet,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Text(
-                        text = displayAlbum,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Box(modifier = Modifier.size(42.dp))
             }
 
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -254,7 +243,7 @@ fun NowPlayingScreen(
                             song = song,
                             cornerRadius = 26.dp,
                             modifier = Modifier
-                                .fillMaxWidth(if (inlineLyric != null) 0.84f else 0.9f)
+                                .fillMaxWidth(if (inlineLyric != null) 0.86f else 0.92f)
                                 .aspectRatio(1f),
                         )
 
@@ -353,35 +342,38 @@ fun NowPlayingScreen(
                         }
                     }
                 }
+            }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                BottomAction(
+                    modifier = Modifier.weight(1f),
+                    label = "Lyrics",
+                    icon = Icons.Outlined.Lyrics,
+                    active = lyricsExpanded,
+                    onClick = { lyricsExpanded = true },
+                )
+                BottomAction(
+                    modifier = Modifier.weight(1f),
+                    label = "Queue",
+                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    onClick = onOpenQueue,
+                )
+                Box(modifier = Modifier.weight(1f)) {
                     BottomAction(
-                        modifier = Modifier.weight(1f),
-                        label = "Lyrics",
-                        icon = Icons.Outlined.Lyrics,
-                        active = lyricsExpanded,
-                        onClick = { lyricsExpanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "More",
+                        icon = Icons.Filled.MoreHoriz,
+                        onClick = { overflowOpen = true },
                     )
-                    BottomAction(
-                        modifier = Modifier.weight(1f),
-                        label = "Queue",
-                        icon = Icons.AutoMirrored.Filled.QueueMusic,
-                        onClick = onOpenQueue,
-                    )
-                    Box(modifier = Modifier.weight(1f)) {
-                        BottomAction(
-                            modifier = Modifier.fillMaxWidth(),
-                            label = "More",
-                            icon = Icons.Filled.MoreHoriz,
-                            onClick = { overflowOpen = true },
-                        )
-                        DropdownMenu(
-                            expanded = overflowOpen,
-                            onDismissRequest = { overflowOpen = false },
-                        ) {
+                    DropdownMenu(
+                        expanded = overflowOpen,
+                        onDismissRequest = { overflowOpen = false },
+                    ) {
                             DropdownMenuItem(
                                 text = { Text(if (state.shuffleEnabled) "Shuffle - on" else "Shuffle") },
                                 onClick = { vm.toggleShuffle(); overflowOpen = false },
@@ -455,7 +447,6 @@ fun NowPlayingScreen(
                                 },
                             )
                         }
-                    }
                 }
             }
         }
@@ -575,7 +566,8 @@ private fun SingleLineLyric(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(28.dp),
+            .height(52.dp)
+            .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
@@ -591,7 +583,7 @@ private fun SingleLineLyric(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -781,15 +773,15 @@ private fun WaveformScrubber(
 
     val waveColor = PulseTheme.colors.accentViolet
     val pillColor = PulseTheme.colors.accentCream
-    val inactiveWaveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+    val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f)
 
     val waveParts = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
         List(4) {
             WavePart(
-                cycles = random.nextDouble(1.15, 2.8).toFloat(),
-                amplitude = random.nextDouble(0.9, 1.45).toFloat(),
-                speed = random.nextDouble(0.1, 0.24).toFloat(),
+                cycles = random.nextDouble(2.2, 4.6).toFloat(),
+                amplitude = random.nextDouble(1.0, 1.85).toFloat(),
+                speed = random.nextDouble(0.18, 0.34).toFloat(),
                 phase = random.nextDouble(0.0, PI * 2).toFloat(),
             )
         }
@@ -841,25 +833,27 @@ private fun WaveformScrubber(
                 val crestSpan = 196.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 9.2.dp.toPx() * amplitude
-                val step = 1.5f
-                val travel = frameSeconds * 7.2f
+                val maxAmp = 11.8.dp.toPx() * amplitude
+                val step = 1.15f
+                val travel = frameSeconds * 9.4f
                 val path = Path()
                 var hasPoint = false
+                val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
+                val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
 
                 fun amplitudeAt(x: Float): Float {
                     val distanceFromPill = abs(pillX - x)
                     val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                    val crestBoost = 0.82f + 0.24f * sin(nearPill * PI.toFloat() / 2f)
+                    val crestBoost = 0.88f + 0.22f * sin(nearPill * PI.toFloat() / 2f)
                     return crestBoost
                 }
 
                 var x = waveInset
-                while (x <= width - waveInset) {
+                while (x <= activeWaveEnd) {
                     val sourceX = (x * 0.92f) - travel
                     val offset = waveParts.sumOf { part ->
-                        val wavelength = (146f / part.cycles).coerceAtLeast(52f)
-                        val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.56f + (part.speed * 0.28f))) + part.phase
+                        val wavelength = (98f / part.cycles).coerceAtLeast(28f)
+                        val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.82f + (part.speed * 0.48f))) + part.phase
                         (sin(angle) * part.amplitude).toDouble()
                     }.toFloat() / waveParts.size
                     val y = centerY + (offset * maxAmp * amplitudeAt(x))
@@ -873,25 +867,25 @@ private fun WaveformScrubber(
                 }
 
                 if (hasPoint) {
-                    val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                    drawPath(
+                        path = path,
+                        color = waveColor,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 3.3.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                }
+
+                if (inactiveTrackStart < width - waveInset) {
+                    drawLine(
+                        color = inactiveTrackColor,
+                        start = Offset(inactiveTrackStart, centerY),
+                        end = Offset(width - waveInset, centerY),
                         width = 3.3.dp.toPx(),
                         cap = StrokeCap.Round,
-                        join = StrokeJoin.Round,
                     )
-                    clipRect(left = pillX + pillWidth / 2f + tailPadding) {
-                        drawPath(
-                            path = path,
-                            color = inactiveWaveColor,
-                            style = stroke,
-                        )
-                    }
-                    clipRect(right = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)) {
-                        drawPath(
-                            path = path,
-                            color = waveColor,
-                            style = stroke,
-                        )
-                    }
                 }
 
                 drawRoundRect(
