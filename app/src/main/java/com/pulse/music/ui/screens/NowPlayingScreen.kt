@@ -202,24 +202,9 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircleButton(onClick = onBack, size = 42.dp) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -239,13 +224,31 @@ fun NowPlayingScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        AlbumArt(
-                            song = song,
-                            cornerRadius = 26.dp,
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth(if (inlineLyric != null) 0.86f else 0.92f)
+                                .fillMaxWidth(0.92f)
                                 .aspectRatio(1f),
-                        )
+                        ) {
+                            AlbumArt(
+                                song = song,
+                                cornerRadius = 26.dp,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp),
+                            ) {
+                                CircleButton(onClick = onBack, size = 42.dp) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "Back",
+                                        tint = MaterialTheme.colorScheme.onBackground,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
 
                         SingleLineLyric(line = inlineLyric)
 
@@ -563,10 +566,12 @@ private fun shareSong(
 private fun SingleLineLyric(
     line: String?,
 ) {
+    if (line == null) return
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(34.dp)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -581,9 +586,9 @@ private fun SingleLineLyric(
                 Text(
                     text = currentLine,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -788,7 +793,7 @@ private fun WaveformScrubber(
     }
 
     val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.55f,
+        targetValue = if (isPlaying) 1f else 0f,
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
@@ -841,41 +846,53 @@ private fun WaveformScrubber(
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
 
-                fun amplitudeAt(x: Float): Float {
-                    val distanceFromPill = abs(pillX - x)
-                    val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                    val crestBoost = 0.88f + 0.22f * sin(nearPill * PI.toFloat() / 2f)
-                    return crestBoost
-                }
-
-                var x = waveInset
-                while (x <= activeWaveEnd) {
-                    val sourceX = (x * 0.92f) - travel
-                    val offset = waveParts.sumOf { part ->
-                        val wavelength = (98f / part.cycles).coerceAtLeast(28f)
-                        val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.82f + (part.speed * 0.48f))) + part.phase
-                        (sin(angle) * part.amplitude).toDouble()
-                    }.toFloat() / waveParts.size
-                    val y = centerY + (offset * maxAmp * amplitudeAt(x))
-                    if (!hasPoint) {
-                        path.moveTo(x, y)
-                        hasPoint = true
-                    } else {
-                        path.lineTo(x, y)
-                    }
-                    x += step
-                }
-
-                if (hasPoint) {
-                    drawPath(
-                        path = path,
-                        color = waveColor,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = 3.3.dp.toPx(),
+                if (!isPlaying) {
+                    if (activeWaveEnd > waveInset) {
+                        drawLine(
+                            color = waveColor,
+                            start = Offset(waveInset, centerY),
+                            end = Offset(activeWaveEnd, centerY),
+                            strokeWidth = 3.3.dp.toPx(),
                             cap = StrokeCap.Round,
-                            join = StrokeJoin.Round,
-                        ),
-                    )
+                        )
+                    }
+                } else {
+                    fun amplitudeAt(x: Float): Float {
+                        val distanceFromPill = abs(pillX - x)
+                        val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
+                        val crestBoost = 0.88f + 0.22f * sin(nearPill * PI.toFloat() / 2f)
+                        return crestBoost
+                    }
+
+                    var x = waveInset
+                    while (x <= activeWaveEnd) {
+                        val sourceX = (x * 0.92f) - travel
+                        val offset = waveParts.sumOf { part ->
+                            val wavelength = (98f / part.cycles).coerceAtLeast(28f)
+                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.82f + (part.speed * 0.48f))) + part.phase
+                            (sin(angle) * part.amplitude).toDouble()
+                        }.toFloat() / waveParts.size
+                        val y = centerY + (offset * maxAmp * amplitudeAt(x))
+                        if (!hasPoint) {
+                            path.moveTo(x, y)
+                            hasPoint = true
+                        } else {
+                            path.lineTo(x, y)
+                        }
+                        x += step
+                    }
+
+                    if (hasPoint) {
+                        drawPath(
+                            path = path,
+                            color = waveColor,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 3.3.dp.toPx(),
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
+                        )
+                    }
                 }
 
                 if (inactiveTrackStart < width - waveInset) {

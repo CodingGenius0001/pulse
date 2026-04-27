@@ -81,6 +81,12 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.16
+
+- Now Playing uses a more stable top-card layout, so tracks no longer visibly shrink or expand depending on whether inline lyrics load.
+- The back button now sits over the artwork card instead of taking a separate top row, which pushes the player content higher on screen.
+- Paused playback now renders the played scrubber segment as a true straight line instead of a low-amplitude wave.
+
 ## What's new in v0.5.15
 
 - Pulse now checks for newer builds on app open and can post a local update notification instead of waiting for a manual Settings check.
@@ -344,6 +350,11 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.16
+- Stable Now Playing card sizing regardless of lyric availability
+- Back button moved into the artwork card to reclaim vertical space
+- Paused waveform now becomes a straight played line
 
 ### v0.5.15
 - App-open update checks now post a local notification when a newer build is available
