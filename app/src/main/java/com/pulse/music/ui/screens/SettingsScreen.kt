@@ -64,6 +64,7 @@ fun SettingsScreen(
     updateVm: UpdateViewModel,
 ) {
     val scanState by vm.scanState.collectAsStateWithLifecycle()
+    val metadataRefreshState by vm.metadataRefreshState.collectAsStateWithLifecycle()
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
     val folderState by vm.folderState.collectAsStateWithLifecycle()
     val userName by vm.userName.collectAsStateWithLifecycle()
@@ -113,6 +114,10 @@ fun SettingsScreen(
                     subtitle = scanSub,
                     onClick = { vm.rescan() },
                     trailing = { Chevron() },
+                )
+                MetadataRefreshRow(
+                    state = metadataRefreshState,
+                    onRefresh = { vm.refreshAllMetadata() },
                 )
             }
         }
@@ -167,6 +172,96 @@ fun SettingsScreen(
                 showRenameDialog = false
             },
         )
+    }
+}
+
+@Composable
+private fun MetadataRefreshRow(
+    state: LibraryViewModel.MetadataRefreshState,
+    onRefresh: () -> Unit,
+) {
+    when (state) {
+        LibraryViewModel.MetadataRefreshState.Idle -> {
+            SettingRow(
+                title = "Refresh all metadata",
+                subtitle = "Retry artist, artwork, album, and lyrics for every track",
+                leading = { SectionIcon(Icons.Filled.Refresh) },
+                onClick = onRefresh,
+                trailing = { Chevron() },
+            )
+        }
+
+        is LibraryViewModel.MetadataRefreshState.Running -> {
+            val progress = if (state.total <= 0) 0f else state.processed.toFloat() / state.total.toFloat()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(PulseTheme.colors.surfaceSoft)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Refreshing metadata",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = state.currentTitle?.takeIf { it.isNotBlank() }
+                        ?.let { "${state.processed + 1} of ${state.total} - $it" }
+                        ?: "${state.processed} of ${state.total}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    color = PulseTheme.colors.accentViolet,
+                    trackColor = PulseTheme.colors.surfaceElevated,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(6.dp)),
+                )
+            }
+        }
+
+        is LibraryViewModel.MetadataRefreshState.Completed -> {
+            SettingRow(
+                title = "Metadata refreshed",
+                subtitle = if (state.total == 0) {
+                    "No songs are indexed yet"
+                } else {
+                    "Retried ${state.refreshed} of ${state.total} songs"
+                },
+                leading = { SectionIcon(Icons.Filled.CheckCircle) },
+                onClick = onRefresh,
+                trailing = {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = "Refresh again",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+            )
+        }
+
+        is LibraryViewModel.MetadataRefreshState.Error -> {
+            SettingRow(
+                title = "Metadata refresh failed",
+                subtitle = state.message,
+                leading = { SectionIcon(Icons.Filled.ErrorOutline) },
+                onClick = onRefresh,
+                trailing = {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = "Retry",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+            )
+        }
     }
 }
 

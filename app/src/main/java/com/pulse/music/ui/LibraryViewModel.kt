@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.pulse.music.PulseApplication
+import com.pulse.music.data.LyricsRepository
 import com.pulse.music.data.MetadataRepository
 import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.Playlist
@@ -35,6 +36,7 @@ class LibraryViewModel(
     private val repository: MusicRepository,
     private val prefs: UserPreferences,
     private val metadataRepository: MetadataRepository,
+    private val lyricsRepository: LyricsRepository,
 ) : ViewModel() {
 
     // ---------- Scan state ----------
@@ -59,6 +61,9 @@ class LibraryViewModel(
         )
     )
     val folderState: StateFlow<FolderState> = _folderState.asStateFlow()
+
+    private val _metadataRefreshState = MutableStateFlow<MetadataRefreshState>(MetadataRefreshState.Idle)
+    val metadataRefreshState: StateFlow<MetadataRefreshState> = _metadataRefreshState.asStateFlow()
 
     // ---------- Library data flows ----------
 
@@ -139,6 +144,50 @@ class LibraryViewModel(
         }
     }
 
+    fun refreshAllMetadata() {
+        if (_metadataRefreshState.value is MetadataRefreshState.Running) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val library = repository.observeAllSongs().first()
+            val total = library.size
+            if (total == 0) {
+                _metadataRefreshState.value = MetadataRefreshState.Completed(
+                    refreshed = 0,
+                    total = 0,
+                    finishedAt = System.currentTimeMillis(),
+                )
+                return@launch
+            }
+
+            _metadataRefreshState.value = MetadataRefreshState.Running(
+                processed = 0,
+                total = total,
+                currentTitle = null,
+            )
+
+            try {
+                library.forEachIndexed { index, song ->
+                    _metadataRefreshState.value = MetadataRefreshState.Running(
+                        processed = index,
+                        total = total,
+                        currentTitle = song.title,
+                    )
+                    metadataRepository.refresh(song)
+                    lyricsRepository.refresh(song)
+                }
+                _metadataRefreshState.value = MetadataRefreshState.Completed(
+                    refreshed = total,
+                    total = total,
+                    finishedAt = System.currentTimeMillis(),
+                )
+            } catch (t: Throwable) {
+                _metadataRefreshState.value = MetadataRefreshState.Error(
+                    message = t.message ?: "Couldn't refresh metadata right now.",
+                )
+            }
+        }
+    }
+
     fun toggleLike(song: Song) {
         viewModelScope.launch { repository.toggleLike(song) }
     }
@@ -187,6 +236,21 @@ class LibraryViewModel(
         data class Completed(val count: Int, val finishedAt: Long) : ScanState
     }
 
+    sealed interface MetadataRefreshState {
+        data object Idle : MetadataRefreshState
+        data class Running(
+            val processed: Int,
+            val total: Int,
+            val currentTitle: String?,
+        ) : MetadataRefreshState
+        data class Completed(
+            val refreshed: Int,
+            val total: Int,
+            val finishedAt: Long,
+        ) : MetadataRefreshState
+        data class Error(val message: String) : MetadataRefreshState
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -196,6 +260,7 @@ class LibraryViewModel(
                     repository = app.repository,
                     prefs = app.userPreferences,
                     metadataRepository = app.metadataRepository,
+                    lyricsRepository = app.lyricsRepository,
                 ) as T
             }
         }

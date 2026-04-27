@@ -351,6 +351,11 @@ updates to find the active line.
 
 ## Changelog
 
+### v0.5.17
+- Settings adds a `Refresh all metadata` action with progress for retrying artist, album, artwork, and lyrics across the whole library
+- App-open update notifications now re-check correctly after notification permission is granted instead of silently sleeping through the first eligible launch
+- Unknown-artist MusicBrainz matching is a little less brittle, giving weak-tag tracks more candidate coverage before they fall back unresolved
+
 ### v0.5.16
 - Stable Now Playing card sizing regardless of lyric availability
 - Back button moved into the artwork card to reclaim vertical space

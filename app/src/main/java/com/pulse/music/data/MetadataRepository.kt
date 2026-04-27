@@ -287,7 +287,7 @@ class MetadataRepository(
             .map { hit -> hit to preliminaryScore(hit, input, durationMs) }
             .filter { (_, score) -> score >= minimumMusicBrainzShortlistScore(input) }
             .sortedByDescending { (_, score) -> score }
-            .take(if (input.artist.isKnownArtist()) 4 else 6)
+            .take(if (input.artist.isKnownArtist()) 4 else 8)
             .map { it.first }
 
         if (shortlist.isEmpty()) return null
@@ -554,14 +554,14 @@ class MetadataRepository(
     private fun minimumMusicBrainzShortlistScore(input: MatchInput): Int = when {
         input.artist.isKnownArtist() -> 56
         input.album.isKnownAlbum() -> 48
-        else -> 40
+        else -> 30
     }
 
     private fun minimumMusicBrainzAcceptScore(input: MatchInput): Int = when {
         input.artist.isKnownArtist() && input.album.isKnownAlbum() -> 82
         input.artist.isKnownArtist() -> 68
         input.album.isKnownAlbum() -> 60
-        else -> 56
+        else -> 52
     }
 
     private fun SongMetadata.overrideInput(): MatchInput? {

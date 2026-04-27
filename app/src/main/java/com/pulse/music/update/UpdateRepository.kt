@@ -70,26 +70,26 @@ class UpdateRepository(private val context: Context) {
         val body: String,
     )
 
-    suspend fun checkForAppOpenUpdateNotification() {
+    suspend fun checkForAppOpenUpdateNotification(force: Boolean = false) {
         val prefs = PulseApplicationHolder.preferences(context)
         if (!prefs.updateNotificationsEnabled.first()) return
 
         val now = System.currentTimeMillis()
         val lastCheck = prefs.updateNotificationsLastCheck.first()
-        if (now - lastCheck < UPDATE_CHECK_INTERVAL_MS) return
-        prefs.setUpdateNotificationsLastCheck(now)
+        if (!force && now - lastCheck < UPDATE_CHECK_INTERVAL_MS) return
+        if (!canPostNotifications()) return
 
         val info = GitHubReleasesApi.fetchTaggedRelease(
             repo = BuildConfig.GITHUB_REPO,
             tag = BuildConfig.RELEASE_TAG,
         ) ?: return
+        prefs.setUpdateNotificationsLastCheck(now)
 
         val installedBuild = BuildConfig.BUILD_NUMBER
         val alreadyNotifiedBuild = prefs.updateNotificationsLastNotifiedBuild.first()
         if (info.buildNumber <= 0 || info.buildNumber <= installedBuild || info.buildNumber <= alreadyNotifiedBuild) {
             return
         }
-        if (!canPostNotifications()) return
 
         postUpdateNotification(info)
         prefs.setUpdateNotificationsLastNotifiedBuild(info.buildNumber)
