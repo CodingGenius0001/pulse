@@ -27,9 +27,8 @@ class MusicRepository(
         if (scanned.isEmpty()) {
             // Folder empty or doesn't exist — clear the library so stale
             // songs from a previous scan don't linger.
-            dao.deleteSongsNotIn(emptyList())
             ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
-            return 0
+            return dao.songCount()
         }
 
         // Preserve user-state (likes, play counts) from existing rows

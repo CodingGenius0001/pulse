@@ -77,23 +77,35 @@ class MetadataRepository(
             MusicBrainzApi.SearchOutcome.NoMatch -> emptyList()
             MusicBrainzApi.SearchOutcome.Unavailable -> emptyList()
         }
-        val retriedCandidates = if (
-            primaryCandidates.isEmpty() &&
-            fallbackInfo.hasUsefulArtistFor(effectiveInput) &&
-            fallbackInfo.matchesSongContext(effectiveInput)
-        ) {
-            when (
-                val retried = MusicBrainzApi.searchRecordings(
-                    title = effectiveInput.title,
-                    artist = fallbackInfo?.artist.orEmpty(),
-                    album = effectiveInput.album,
-                )
+        val retriedCandidates = buildList {
+            if (
+                primaryCandidates.isEmpty() &&
+                fallbackInfo.hasUsefulArtistFor(effectiveInput) &&
+                fallbackInfo.matchesSongContext(effectiveInput)
             ) {
-                is MusicBrainzApi.SearchOutcome.Found -> retried.candidates
-                else -> emptyList()
+                when (
+                    val retried = MusicBrainzApi.searchRecordings(
+                        title = effectiveInput.title,
+                        artist = fallbackInfo?.artist.orEmpty(),
+                        album = fallbackInfo?.album.orEmpty().ifBlank { effectiveInput.album },
+                    )
+                ) {
+                    is MusicBrainzApi.SearchOutcome.Found -> addAll(retried.candidates)
+                    else -> Unit
+                }
             }
-        } else {
-            emptyList()
+            if (primaryCandidates.isEmpty()) {
+                when (
+                    val titleOnly = MusicBrainzApi.searchRecordings(
+                        title = effectiveInput.title,
+                        artist = "",
+                        album = effectiveInput.album,
+                    )
+                ) {
+                    is MusicBrainzApi.SearchOutcome.Found -> addAll(titleOnly.candidates)
+                    else -> Unit
+                }
+            }
         }
 
         val bestMusicBrainzMatch = pickBestMusicBrainzMatch(
@@ -433,13 +445,26 @@ class MetadataRepository(
             cached.resolvedArtist.isNullOrBlank() &&
             cached.resolvedAlbum.isNullOrBlank() &&
             cached.artworkUrl.isNullOrBlank()
-        if (noResolvedInfo) return song.artist.isUnknownArtist() || input.artist.isKnownArtist()
+        if (noResolvedInfo) {
+            return song.artist.isUnknownArtist() ||
+                input.artist.isKnownArtist() ||
+                System.currentTimeMillis() - cached.fetchedAt >= ARTWORK_RETRY_WINDOW_MS
+        }
 
         val hasManualOverrideWithoutArtwork = cached.hasOverride() &&
             cached.artworkUrl.isNullOrBlank() &&
             cached.resolvedTitle.cleanKey() == input.title.cleanKey() &&
             cached.resolvedArtist.cleanKey() == input.artist.cleanKey()
-        return hasManualOverrideWithoutArtwork
+        if (hasManualOverrideWithoutArtwork) return true
+
+        val missingArtworkButMatched = cached.artworkUrl.isNullOrBlank() &&
+            cached.resolvedTitle.cleanKey() == input.title.cleanKey() &&
+            (
+                input.artist.isUnknownArtist() ||
+                    cached.resolvedArtist.cleanKey() == input.artist.cleanKey()
+                )
+        return missingArtworkButMatched &&
+            System.currentTimeMillis() - cached.fetchedAt >= ARTWORK_RETRY_WINDOW_MS
     }
 
     private fun textScore(actual: String, expected: String, exact: Int, contains: Int, overlap: Int): Int {
@@ -544,4 +569,8 @@ class MetadataRepository(
         val details: MusicBrainzApi.RecordingDetails?,
         val score: Int,
     )
+
+    private companion object {
+        const val ARTWORK_RETRY_WINDOW_MS = 30 * 60 * 1000L
+    }
 }

@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SongMetadata::class,
         SongLyrics::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class PulseDatabase : RoomDatabase() {
@@ -34,7 +34,7 @@ abstract class PulseDatabase : RoomDatabase() {
                 // version bumps, we wipe the DB and rescan. Users lose likes
                 // and playlists on app updates; acceptable tradeoff for pre-1.0.
                 // Swap to proper Migration objects before a real release.
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 .build()
         }
 
@@ -45,6 +45,27 @@ abstract class PulseDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE song_metadata ADD COLUMN overrideAlbum TEXT")
                 db.execSQL("ALTER TABLE song_metadata ADD COLUMN overrideAppliedAt INTEGER NOT NULL DEFAULT 0")
             }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!db.hasColumn("song_metadata", "fetchedAt")) {
+                    db.execSQL("ALTER TABLE song_metadata ADD COLUMN fetchedAt INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("UPDATE song_metadata SET fetchedAt = strftime('%s','now') * 1000 WHERE fetchedAt = 0")
+                }
+            }
+        }
+
+        private fun SupportSQLiteDatabase.hasColumn(table: String, column: String): Boolean {
+            query("PRAGMA table_info($table)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                while (cursor.moveToNext()) {
+                    if (nameIndex >= 0 && cursor.getString(nameIndex) == column) {
+                        return true
+                    }
+                }
+            }
+            return false
         }
     }
 }

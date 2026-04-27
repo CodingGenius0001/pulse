@@ -36,7 +36,7 @@ object MusicBrainzApi {
     }
 
     private const val BASE_URL = "https://musicbrainz.org/ws/2"
-    private const val USER_AGENT = "Pulse-Android/0.5.11 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.12 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -64,7 +64,7 @@ object MusicBrainzApi {
         val url = "$BASE_URL/recording".toHttpUrl()
             .newBuilder()
             .addQueryParameter("fmt", "json")
-            .addQueryParameter("limit", "8")
+            .addQueryParameter("limit", "10")
             .addQueryParameter("query", query)
             .build()
 
@@ -118,24 +118,37 @@ object MusicBrainzApi {
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(RecordingLookupResponse.serializer(), body)
-                val chosenRelease = chooseRelease(parsed.releases.orEmpty(), preferredAlbum)
+                val artistName = parsed.artistCredit?.joinToString(" ") { it.name.orEmpty() }?.trim()
+                val releaseCandidates = rankReleases(parsed.releases.orEmpty(), preferredAlbum)
+                var chosenRelease = releaseCandidates.firstOrNull()
+                var artworkUrl: String? = null
+                for (release in releaseCandidates.take(5)) {
+                    val resolvedArtwork = resolveArtwork(
+                        release = release,
+                        artistName = artistName,
+                    )
+                    if (!resolvedArtwork.isNullOrBlank()) {
+                        chosenRelease = release
+                        artworkUrl = resolvedArtwork
+                        break
+                    }
+                }
+                if (artworkUrl.isNullOrBlank()) {
+                    artworkUrl = chosenRelease?.let { release ->
+                        resolveArtwork(
+                            release = release,
+                            artistName = artistName,
+                        )
+                    }
+                }
                 val releaseGroupId = chosenRelease?.releaseGroup?.id
                 val releaseId = chosenRelease?.id
-                val artworkUrl = when {
-                    !releaseGroupId.isNullOrBlank() && hasCoverArt("release-group", releaseGroupId) ->
-                        "https://coverartarchive.org/release-group/$releaseGroupId/front"
-                    !releaseId.isNullOrBlank() && hasCoverArt("release", releaseId) ->
-                        "https://coverartarchive.org/release/$releaseId/front"
-                    !releaseGroupId.isNullOrBlank() ->
-                        TheAudioDbApi.findAlbumArtByReleaseGroup(releaseGroupId)
-                    else -> null
-                }
 
                 RecordingDetails(
                     recordingId = parsed.id,
                     url = "https://musicbrainz.org/recording/${parsed.id}",
                     title = parsed.title.orEmpty(),
-                    artist = parsed.artistCredit?.joinToString(" ") { it.name.orEmpty() }?.trim(),
+                    artist = artistName,
                     album = chosenRelease?.title,
                     releaseGroupId = releaseGroupId,
                     releaseId = releaseId,
@@ -164,11 +177,30 @@ object MusicBrainzApi {
         }
     }
 
-    private fun chooseRelease(
+    private suspend fun resolveArtwork(
+        release: ReleaseDto,
+        artistName: String?,
+    ): String? {
+        val releaseGroupId = release.releaseGroup?.id
+        val releaseId = release.id
+        return when {
+            !releaseGroupId.isNullOrBlank() && hasCoverArt("release-group", releaseGroupId) ->
+                "https://coverartarchive.org/release-group/$releaseGroupId/front"
+            !releaseId.isNullOrBlank() && hasCoverArt("release", releaseId) ->
+                "https://coverartarchive.org/release/$releaseId/front"
+            !releaseGroupId.isNullOrBlank() ->
+                TheAudioDbApi.findAlbumArtByReleaseGroup(releaseGroupId)
+                    ?: TheAudioDbApi.findAlbumArt(artistName.orEmpty(), release.title.orEmpty())
+            else ->
+                TheAudioDbApi.findAlbumArt(artistName.orEmpty(), release.title.orEmpty())
+        }
+    }
+
+    private fun rankReleases(
         releases: List<ReleaseDto>,
         preferredAlbum: String,
-    ): ReleaseDto? {
-        if (releases.isEmpty()) return null
+    ): List<ReleaseDto> {
+        if (releases.isEmpty()) return emptyList()
         val cleanPreferredAlbum = preferredAlbum.cleanSearchText()
         return releases
             .sortedByDescending { release ->
@@ -180,7 +212,6 @@ object MusicBrainzApi {
                     else -> 1
                 }
             }
-            .firstOrNull()
     }
 
     private fun String.isKnownArtist(): Boolean =

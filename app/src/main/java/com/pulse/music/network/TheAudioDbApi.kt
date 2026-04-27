@@ -11,7 +11,7 @@ import okhttp3.Request
 object TheAudioDbApi {
 
     private const val BASE_URL = "https://www.theaudiodb.com/api/v1/json/123"
-    private const val USER_AGENT = "Pulse-Android/0.5.11 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.12 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -46,6 +46,48 @@ object TheAudioDbApi {
         }
     }
 
+    suspend fun findAlbumArt(artistName: String, albumName: String): String? = withContext(Dispatchers.IO) {
+        if (artistName.isBlank() || albumName.isBlank()) return@withContext null
+
+        val request = Request.Builder()
+            .url(
+                "$BASE_URL/searchalbum.php".toHttpUrl()
+                    .newBuilder()
+                    .addQueryParameter("s", artistName)
+                    .addQueryParameter("a", albumName)
+                    .build()
+            )
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", "application/json")
+            .get()
+            .build()
+
+        try {
+            HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val parsed = json.decodeFromString(AlbumLookupResponse.serializer(), body)
+                parsed.albums
+                    ?.firstOrNull { album ->
+                        album.albumThumb?.isNotBlank() == true &&
+                            album.albumName.orEmpty().cleanSearchText() == albumName.cleanSearchText() &&
+                            album.artistName.orEmpty().cleanSearchText() == artistName.cleanSearchText()
+                    }
+                    ?.albumThumb
+                    ?.takeIf { it.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun String.cleanSearchText(): String =
+        lowercase()
+            .replace(Regex("""\([^)]*\)|\[[^]]*]"""), " ")
+            .replace(Regex("""[^\p{L}\p{N}& ]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
     @Serializable
     private data class AlbumLookupResponse(
         @SerialName("album")
@@ -54,6 +96,10 @@ object TheAudioDbApi {
 
     @Serializable
     private data class AlbumDto(
+        @SerialName("strAlbum")
+        val albumName: String? = null,
+        @SerialName("strArtist")
+        val artistName: String? = null,
         @SerialName("strAlbumThumb")
         val albumThumb: String? = null,
     )

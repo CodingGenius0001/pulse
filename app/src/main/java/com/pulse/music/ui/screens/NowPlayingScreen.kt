@@ -167,6 +167,9 @@ fun NowPlayingScreen(
         value = null
         value = app.lyricsRepository.lyricsFor(song)
     }
+    val inlineLyric = remember(lyricsResult, state.positionMs) {
+        extractInlineLyric(lyricsResult, state.positionMs)
+    }
 
     var lyricsExpanded by remember(song.id) { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
@@ -250,11 +253,11 @@ fun NowPlayingScreen(
                             song = song,
                             cornerRadius = 26.dp,
                             modifier = Modifier
-                                .fillMaxWidth(0.84f)
+                                .fillMaxWidth(if (inlineLyric != null) 0.84f else 0.9f)
                                 .aspectRatio(1f),
                         )
 
-                        SingleLineLyric(result = lyricsResult, positionMs = state.positionMs)
+                        SingleLineLyric(line = inlineLyric)
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -566,33 +569,18 @@ private fun shareSong(
 
 @Composable
 private fun SingleLineLyric(
-    result: LyricsResult?,
-    positionMs: Long,
+    line: String?,
 ) {
-    val currentLine: String? = when (result) {
-        is LyricsResult.Found -> {
-            if (result.synced) {
-                val lines = remember(result.text) { parseLrc(result.text) }
-                val idx = remember(positionMs, lines) { activeLyricsIndex(lines, positionMs) }
-                lines.getOrNull(idx)?.text?.takeIf { it.isNotBlank() }
-            } else {
-                remember(result.text) { result.text.lines().firstOrNull { it.isNotBlank() } }
-            }
-        }
-
-        else -> null
-    }
-
     AnimatedContent(
-        targetState = currentLine,
+        targetState = line,
         transitionSpec = {
             (fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 }).togetherWith(fadeOut(tween(200)))
         },
         label = "singleLineLyric",
-    ) { line ->
-        if (line != null) {
+    ) { currentLine ->
+        if (currentLine != null) {
             Text(
-                text = line,
+                text = currentLine,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
@@ -600,8 +588,6 @@ private fun SingleLineLyric(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
-        } else {
-            Spacer(Modifier.height(44.dp))
         }
     }
 }
@@ -791,19 +777,19 @@ private fun WaveformScrubber(
 
     val waveParts = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        List(4) {
+        List(3) {
             WavePart(
-                cycles = random.nextDouble(0.65, 1.45).toFloat(),
-                amplitude = random.nextDouble(0.42, 0.92).toFloat(),
-                speed = random.nextDouble(0.36, 0.82).toFloat(),
+                cycles = random.nextDouble(0.9, 1.9).toFloat(),
+                amplitude = random.nextDouble(0.78, 1.26).toFloat(),
+                speed = random.nextDouble(0.14, 0.34).toFloat(),
                 phase = random.nextDouble(0.0, PI * 2).toFloat(),
             )
         }
     }
 
     val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 0.72f else 0.22f,
-        animationSpec = tween(durationMillis = 320),
+        targetValue = if (isPlaying) 1f else 0.36f,
+        animationSpec = tween(durationMillis = 420),
         label = "waveAmplitude",
     )
     val frameSeconds by produceState(initialValue = 0f) {
@@ -860,27 +846,27 @@ private fun WaveformScrubber(
 
                 val waveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)
                 if (waveEnd > 6f) {
-                    val maxAmp = 5.2.dp.toPx() * amplitude
-                    val step = 2.35f
-                    val travel = frameSeconds * 24f
+                    val maxAmp = 7.8.dp.toPx() * amplitude
+                    val step = 1.8f
+                    val travel = frameSeconds * 11f
                     val path = Path()
                     var hasPoint = false
 
                     fun amplitudeAt(distanceFromPill: Float): Float {
                         val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                        val crestBoost = 0.88f + 0.12f * sin(nearPill * PI.toFloat() / 2f)
-                        val tailFade = 0.9f + 0.08f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.35f)
+                        val crestBoost = 0.72f + 0.42f * sin(nearPill * PI.toFloat() / 2f)
+                        val tailFade = 0.58f + 0.22f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.35f)
                         return crestBoost * tailFade
                     }
 
                     var x = 0f
                     while (x <= waveEnd) {
                         val distanceFromPill = (waveEnd - x).coerceAtLeast(0f)
-                        val sourceX = (distanceFromPill * 0.96f) - travel
+                        val sourceX = (distanceFromPill * 0.94f) - travel
                         val offset = waveParts.sumOf { part ->
-                            val wavelength = (148f / part.cycles).coerceAtLeast(74f)
-                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.24f + (part.speed * 0.14f))) + part.phase
-                            (sin(angle) * part.amplitude * 0.74f).toDouble()
+                            val wavelength = (184f / part.cycles).coerceAtLeast(92f)
+                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.34f + (part.speed * 0.18f))) + part.phase
+                            (sin(angle) * part.amplitude).toDouble()
                         }.toFloat() / waveParts.size
                         val y = centerY + (offset * maxAmp * amplitudeAt(distanceFromPill))
                         if (!hasPoint) {
@@ -897,7 +883,7 @@ private fun WaveformScrubber(
                             path = path,
                             color = waveColor,
                             style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 2.8.dp.toPx(),
+                                width = 3.2.dp.toPx(),
                                 cap = StrokeCap.Round,
                                 join = StrokeJoin.Round,
                             ),
@@ -983,6 +969,23 @@ private fun lyricsSuffix(result: LyricsResult): String = when (result) {
     is LyricsResult.Found -> " and lyrics"
     LyricsResult.NotFound -> ", but lyrics were still not found"
     is LyricsResult.Error -> ", but lyrics could not be refreshed"
+}
+
+private fun extractInlineLyric(
+    result: LyricsResult?,
+    positionMs: Long,
+): String? = when (result) {
+    is LyricsResult.Found -> {
+        if (result.synced) {
+            val lines = parseLrc(result.text)
+            val idx = activeLyricsIndex(lines, positionMs)
+            lines.getOrNull(idx)?.text?.takeIf { it.isNotBlank() }
+        } else {
+            result.text.lines().firstOrNull { it.isNotBlank() }
+        }
+    }
+
+    else -> null
 }
 
 private sealed interface MatchRefreshState {

@@ -119,8 +119,6 @@ class LibraryViewModel(
     private suspend fun enrichMetadataAsync() {
         val library = repository.observeAllSongs().first()
         for (song in library) {
-            // Any existing row (match or cached miss) short-circuits.
-            if (metadataRepository.getCached(song.id) != null) continue
             metadataRepository.resolve(song)
         }
     }

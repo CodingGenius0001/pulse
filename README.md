@@ -81,6 +81,13 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.12
+
+- Metadata enrichment now retries more aggressively for unresolved and artwork-missing tracks, so covers are fetched automatically before the user has to intervene.
+- Empty scans no longer wipe cached songs and playlist contents, which prevents update-time library resets when MediaStore comes back empty for a moment.
+- Now Playing expands the cover art when no inline lyric is available, and the scrubber wave is more visible again instead of reading like a flat line.
+- The app typography now uses Space Grotesk across the full UI for a cleaner, more consistent look.
+
 ## What's new in v0.5.11
 
 - Metadata matching now prefers MusicBrainz and Cover Art Archive, with Genius demoted to a secondary fallback instead of being the main authority.
@@ -317,6 +324,12 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.12
+- Automatic metadata and artwork retries for unresolved songs, plus stronger fallback art lookups
+- Empty rescans no longer cascade-delete playlist contents during app updates
+- Now Playing fills the missing inline-lyrics gap with larger artwork and restores a more visible flowing waveform
+- Space Grotesk is now the app-wide typeface
 
 ### v0.5.11
 - MusicBrainz plus Cover Art Archive is now the primary metadata and artwork chain, with Genius as a fallback
