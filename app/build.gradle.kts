@@ -53,8 +53,8 @@ android {
         applicationId = "com.pulse.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 16
-        versionName = "0.5.9"
+        versionCode = 17
+        versionName = "0.5.10"
 
         vectorDrawables {
             useSupportLibrary = true

@@ -784,18 +784,18 @@ private fun WaveformScrubber(
 
     val waveParts = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        List(6) {
+        List(4) {
             WavePart(
-                cycles = random.nextDouble(0.85, 2.8).toFloat(),
-                amplitude = random.nextDouble(0.22, 1.0).toFloat(),
-                speed = random.nextDouble(0.55, 1.7).toFloat(),
+                cycles = random.nextDouble(0.65, 1.45).toFloat(),
+                amplitude = random.nextDouble(0.42, 0.92).toFloat(),
+                speed = random.nextDouble(0.36, 0.82).toFloat(),
                 phase = random.nextDouble(0.0, PI * 2).toFloat(),
             )
         }
     }
 
     val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 0.52f else 0.16f,
+        targetValue = if (isPlaying) 0.72f else 0.22f,
         animationSpec = tween(durationMillis = 320),
         label = "waveAmplitude",
     )
@@ -838,7 +838,7 @@ private fun WaveformScrubber(
                 val pillWidth = 10.dp.toPx()
                 val pillHeight = 34.dp.toPx()
                 val tailPadding = 3.dp.toPx()
-                val crestSpan = 132.dp.toPx()
+                val crestSpan = 152.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
 
                 val rightTrackStart = pillX + pillWidth / 2f + 2.dp.toPx()
@@ -853,27 +853,27 @@ private fun WaveformScrubber(
 
                 val waveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(0f)
                 if (waveEnd > 6f) {
-                    val maxAmp = 3.4.dp.toPx() * amplitude
-                    val step = 3.25f
-                    val travel = frameSeconds * 42f
+                    val maxAmp = 5.2.dp.toPx() * amplitude
+                    val step = 2.35f
+                    val travel = frameSeconds * 24f
                     val path = Path()
                     var hasPoint = false
 
                     fun amplitudeAt(distanceFromPill: Float): Float {
                         val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                        val crestBoost = 0.76f + 0.18f * sin(nearPill * PI.toFloat() / 2f)
-                        val tailFade = 0.84f + 0.08f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.45f)
+                        val crestBoost = 0.88f + 0.12f * sin(nearPill * PI.toFloat() / 2f)
+                        val tailFade = 0.9f + 0.08f * cos((distanceFromPill / width).coerceIn(0f, 1f) * PI.toFloat() * 0.35f)
                         return crestBoost * tailFade
                     }
 
                     var x = 0f
                     while (x <= waveEnd) {
                         val distanceFromPill = (waveEnd - x).coerceAtLeast(0f)
-                        val sourceX = (distanceFromPill * 0.82f) - travel
+                        val sourceX = (distanceFromPill * 0.96f) - travel
                         val offset = waveParts.sumOf { part ->
-                            val wavelength = (176f / part.cycles).coerceAtLeast(56f)
-                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.32f + (part.speed * 0.18f))) + part.phase
-                            (sin(angle) * part.amplitude * 0.58f).toDouble()
+                            val wavelength = (148f / part.cycles).coerceAtLeast(74f)
+                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.24f + (part.speed * 0.14f))) + part.phase
+                            (sin(angle) * part.amplitude * 0.74f).toDouble()
                         }.toFloat() / waveParts.size
                         val y = centerY + (offset * maxAmp * amplitudeAt(distanceFromPill))
                         if (!hasPoint) {

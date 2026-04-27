@@ -202,12 +202,21 @@ class UpdateRepository(private val context: Context) {
         val pending = PulseApplicationHolder.preferences(context).pendingUpdateInfo.first() ?: return null
         if (pending.buildNumber <= 0 || BuildConfig.BUILD_NUMBER < pending.buildNumber) return null
 
-        val body = extractChangelogSection(BuildConfig.VERSION_NAME)
-            ?: pending.releaseNotes.takeIf { it.isNotBlank() }
-            ?: return null
+        val resolvedVersionName = pending.versionName.ifBlank { BuildConfig.VERSION_NAME }
+        val versionSection = pending.versionName
+            .takeIf { it.isNotBlank() }
+            ?.let(::extractChangelogSection)
+        val releaseSummary = pending.releaseNotes.toChangelogSummary()
+        val body = when {
+            !versionSection.isNullOrBlank() && !releaseSummary.isNullOrBlank() ->
+                "$releaseSummary\n\nRelease summary\n$versionSection"
+            !versionSection.isNullOrBlank() -> versionSection
+            !releaseSummary.isNullOrBlank() -> releaseSummary
+            else -> return null
+        }
 
         return PendingChangelog(
-            versionName = BuildConfig.VERSION_NAME,
+            versionName = resolvedVersionName,
             buildNumber = pending.buildNumber,
             body = body.trim(),
         )
@@ -232,11 +241,39 @@ class UpdateRepository(private val context: Context) {
     }
 
     private fun parseVersionName(releaseNotes: String): String =
-        Regex("""v(\d+\.\d+\.\d+)""")
+        Regex("""(?:Version:\s*|v)(\d+\.\d+\.\d+)""", RegexOption.IGNORE_CASE)
             .find(releaseNotes)
             ?.groupValues
             ?.getOrNull(1)
-            ?: BuildConfig.VERSION_NAME
+            .orEmpty()
+
+    private fun String.toChangelogSummary(): String? {
+        val lines = lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot { it.startsWith("1.") || it.startsWith("2.") || it.startsWith("3.") }
+            .filterNot { it.startsWith("**Install:", ignoreCase = true) }
+            .filterNot { it.startsWith("Permanent download link", ignoreCase = true) }
+            .filterNot { it.startsWith("https://github.com/", ignoreCase = true) }
+            .filterNot { it.startsWith("Last updated from commit", ignoreCase = true) }
+            .toList()
+        if (lines.isEmpty()) return null
+
+        val commitMessage = lines.firstOrNull { it.startsWith("Commit message:", ignoreCase = true) }
+            ?.substringAfter(':')
+            ?.trim()
+        val buildLine = lines.firstOrNull { it.startsWith("Build #", ignoreCase = true) }
+        val versionLine = lines.firstOrNull { it.startsWith("Version:", ignoreCase = true) }
+        val commitLine = lines.firstOrNull { it.startsWith("Commit:", ignoreCase = true) }
+
+        val summaryLines = buildList {
+            buildLine?.let { add(it) }
+            versionLine?.let { add(it) }
+            commitLine?.let { add(it) }
+            commitMessage?.takeIf { it.isNotBlank() }?.let { add("Change: $it") }
+        }
+        return summaryLines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }
 }
 
 private object PulseApplicationHolder {

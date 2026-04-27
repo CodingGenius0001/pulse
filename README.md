@@ -81,6 +81,11 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.10
+
+- The post-update changelog dialog now reflects the actual installed build instead of repeatedly resurfacing the previous release summary.
+- Now Playing's scrubber is back to a smoother, slower wave motion with a single visible wave instead of the harsh split-track treatment.
+
 ## What's new in v0.5.9
 
 - Room now uses explicit migrations instead of destructive resets, so playlists, likes, cached metadata, and lyrics survive normal app updates.
@@ -307,6 +312,10 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.10
+- Post-update changelog dialog now uses build-specific install context instead of repeating the old release summary
+- Now Playing waveform is smoother and slower, with a single visible wave instead of the split bright/dim line
 
 ### v0.5.9
 - Room migrations now preserve playlists, likes, cached metadata, and cached lyrics across normal app upgrades

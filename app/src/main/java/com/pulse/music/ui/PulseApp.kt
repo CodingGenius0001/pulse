@@ -265,7 +265,7 @@ private fun PostUpdateChangelogDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "What's new in v${changelog.versionName}",
+                text = "What's new in v${changelog.versionName} (build ${changelog.buildNumber})",
                 color = MaterialTheme.colorScheme.onBackground,
             )
         },

@@ -140,6 +140,13 @@ jobs:
           echo "versioned_tag=build-${{ github.run_number }}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Read app version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: version
+        run: |
+          VERSION_NAME=$(grep 'versionName = "' app/build.gradle.kts | head -n 1 | sed -E 's/.*versionName = "([^"]+)".*/\1/')
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Publish versioned release (immutable history)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
@@ -147,6 +154,8 @@ jobs:
           tag_name: ${{ steps.tag.outputs.versioned_tag }}
           name: "Build #${{ github.run_number }} (${{ steps.tag.outputs.short_sha }})"
           body: |
+            Version: ${{ steps.version.outputs.version_name }}
+
             Automated debug build from commit ${{ github.sha }}.
 
             **Install:**
@@ -154,6 +163,7 @@ jobs:
             2. Tap the APK on your phone. Android may warn about unknown sources; allow it for whichever app opened the file.
             3. If your currently installed build came from an older one-off debug key, uninstall once, install this build, and future CI builds can update normally.
 
+            Commit: ${{ github.sha }}
             **Commit message:** ${{ github.event.head_commit.message }}
           files: release-staging/pulse-debug.apk
           prerelease: true   # marked pre-release since it's a debug build, not signed for production
@@ -176,11 +186,14 @@ jobs:
           tag_name: latest
           name: "Latest debug build"
           body: |
+            Version: ${{ steps.version.outputs.version_name }}
+
             **Build #${{ github.run_number }}** — auto-published from main.
 
             Permanent download link (always newest):
             https://github.com/CodingGenius0001/pulse/releases/latest/download/pulse-debug.apk
 
-            Last updated from commit `${{ github.sha }}` (build #${{ github.run_number }}).
+            Commit: ${{ github.sha }}
+            Commit message: ${{ github.event.head_commit.message }}
           files: release-staging/pulse-debug.apk
           make_latest: "true"
