@@ -11,7 +11,7 @@ import okhttp3.Request
 object TheAudioDbApi {
 
     private const val BASE_URL = "https://www.theaudiodb.com/api/v1/json/123"
-    private const val USER_AGENT = "Pulse-Android/0.5.13 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.15 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true

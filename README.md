@@ -81,6 +81,13 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.5.15
+
+- Pulse now checks for newer builds on app open and can post a local update notification instead of waiting for a manual Settings check.
+- Settings adds a release-notification toggle so update alerts can be turned off without disabling the updater itself.
+- Title-only metadata recovery is stronger for weak-tag tracks, with MusicBrainz duration-aware matching and more eager retries for incomplete artist/artwork rows.
+- Unresolved songs no longer fall back to obviously wrong embedded art as easily when local tags are too weak to trust.
+
 ## What's new in v0.5.14
 
 - Now Playing drops the extra top status copy and rebalances the layout so the artwork-and-title card sits higher while transport controls stay anchored lower.
@@ -337,6 +344,12 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.5.15
+- App-open update checks now post a local notification when a newer build is available
+- Settings adds a release notification toggle
+- Title-plus-duration auto matching is stronger for unknown-artist tracks, with more aggressive retries for incomplete metadata rows
+- Weak local tags no longer cause as many wrong embedded-art fallbacks while remote metadata is still unresolved
 
 ### v0.5.14
 - Higher Now Playing card layout with more room for inline lyrics and less dead space at the top

@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -62,7 +63,10 @@ import kotlinx.coroutines.launch
  * mini-player, and Now Playing / Queue overlays.
  */
 @Composable
-fun PulseApp() {
+fun PulseApp(
+    launchRoute: String? = null,
+    onLaunchRouteConsumed: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val libraryVm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val playerVm: PlayerViewModel = viewModel(factory = PlayerViewModel.Factory())
@@ -102,6 +106,24 @@ fun PulseApp() {
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    LaunchedEffect(Unit) {
+        app.updateRepository.checkForAppOpenUpdateNotification()
+    }
+
+    LaunchedEffect(launchRoute) {
+        if (!launchRoute.isNullOrBlank()) {
+            Destination.entries.firstOrNull { it.route == launchRoute }?.let { destination ->
+                if (destination.route != currentRoute) {
+                    navigateTo(navController, destination)
+                }
+                if (destination == Destination.Settings) {
+                    updateVm.checkForUpdate()
+                }
+            }
+            onLaunchRouteConsumed()
+        }
+    }
 
     PulseTheme(accentColor = artworkColor) {
         CompositionLocalProvider(LocalPulseBackgroundTint provides backgroundTint) {

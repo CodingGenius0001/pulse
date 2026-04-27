@@ -70,6 +70,7 @@ fun SettingsScreen(
 
     val prefs = PulseApplication.get().userPreferences
     val themePref by prefs.theme.collectAsStateWithLifecycle(initialValue = ThemePreference.Dark)
+    val updateNotificationsEnabled by prefs.updateNotificationsEnabled.collectAsStateWithLifecycle(initialValue = true)
     val scope = rememberCoroutineScope()
     var showRenameDialog by remember { mutableStateOf(false) }
 
@@ -121,7 +122,27 @@ fun SettingsScreen(
                 SettingRow(title = "Sync across devices", subtitle = "Reserved for a future account flow")
             }
         }
-        item { SettingsSection(title = "Updates") { UpdateRow(updateVm) } }
+        item {
+            SettingsSection(title = "Updates") {
+                SettingRow(
+                    title = "Release notifications",
+                    subtitle = if (updateNotificationsEnabled) {
+                        "Check on app open and notify when a newer build exists"
+                    } else {
+                        "Only show updates when you check manually"
+                    },
+                    trailing = {
+                        BooleanToggle(
+                            enabled = updateNotificationsEnabled,
+                            onToggle = { enabled ->
+                                scope.launch { prefs.setUpdateNotificationsEnabled(enabled) }
+                            },
+                        )
+                    },
+                )
+                UpdateRow(updateVm)
+            }
+        }
         item {
             SettingsSection(title = "About") {
                 val versionLabel = run {
@@ -146,6 +167,49 @@ fun SettingsScreen(
                 showRenameDialog = false
             },
         )
+    }
+}
+
+@Composable
+private fun BooleanToggle(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(PulseTheme.colors.surfaceSoft)
+            .clickable { onToggle(!enabled) }
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (enabled) PulseTheme.colors.accentCream else Color.Transparent)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "On",
+                color = if (enabled) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (!enabled) PulseTheme.colors.accentCream else Color.Transparent)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Off",
+                color = if (!enabled) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 

@@ -36,7 +36,7 @@ object MusicBrainzApi {
     }
 
     private const val BASE_URL = "https://musicbrainz.org/ws/2"
-    private const val USER_AGENT = "Pulse-Android/0.5.13 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.5.15 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -64,7 +64,7 @@ object MusicBrainzApi {
         val url = "$BASE_URL/recording".toHttpUrl()
             .newBuilder()
             .addQueryParameter("fmt", "json")
-            .addQueryParameter("limit", "10")
+            .addQueryParameter("limit", if (artist.isKnownArtist()) "10" else "15")
             .addQueryParameter("query", query)
             .build()
 

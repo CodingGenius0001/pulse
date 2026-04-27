@@ -1,10 +1,21 @@
 package com.pulse.music.update
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import com.pulse.music.BuildConfig
+import com.pulse.music.MainActivity
+import com.pulse.music.R
 import com.pulse.music.data.PendingUpdateInfo
 import com.pulse.music.network.HttpClient
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +69,31 @@ class UpdateRepository(private val context: Context) {
         val buildNumber: Int,
         val body: String,
     )
+
+    suspend fun checkForAppOpenUpdateNotification() {
+        val prefs = PulseApplicationHolder.preferences(context)
+        if (!prefs.updateNotificationsEnabled.first()) return
+
+        val now = System.currentTimeMillis()
+        val lastCheck = prefs.updateNotificationsLastCheck.first()
+        if (now - lastCheck < UPDATE_CHECK_INTERVAL_MS) return
+        prefs.setUpdateNotificationsLastCheck(now)
+
+        val info = GitHubReleasesApi.fetchTaggedRelease(
+            repo = BuildConfig.GITHUB_REPO,
+            tag = BuildConfig.RELEASE_TAG,
+        ) ?: return
+
+        val installedBuild = BuildConfig.BUILD_NUMBER
+        val alreadyNotifiedBuild = prefs.updateNotificationsLastNotifiedBuild.first()
+        if (info.buildNumber <= 0 || info.buildNumber <= installedBuild || info.buildNumber <= alreadyNotifiedBuild) {
+            return
+        }
+        if (!canPostNotifications()) return
+
+        postUpdateNotification(info)
+        prefs.setUpdateNotificationsLastNotifiedBuild(info.buildNumber)
+    }
 
     /**
      * Hits the GitHub API, compares the release's build number to the one
@@ -247,6 +283,62 @@ class UpdateRepository(private val context: Context) {
             ?.getOrNull(1)
             .orEmpty()
 
+    private fun canPostNotifications(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun postUpdateNotification(info: UpdateInfo) {
+        ensureNotificationChannel()
+
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_OPEN_ROUTE, com.pulse.music.ui.components.Destination.Settings.route)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            UPDATE_NOTIFICATION_REQUEST_CODE,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val body = buildString {
+            append("Build #").append(info.buildNumber).append(" is ready")
+            val version = parseVersionName(info.releaseNotes)
+            if (version.isNotBlank()) {
+                append(" • v").append(version)
+            }
+        }
+
+        val notification = NotificationCompat.Builder(context, UPDATE_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Pulse update available")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$body. Open Pulse to review and install."))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(UPDATE_NOTIFICATION_ID, notification)
+    }
+
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val channel = NotificationChannel(
+            UPDATE_NOTIFICATION_CHANNEL_ID,
+            "Pulse updates",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Release notifications for new Pulse builds"
+        }
+        manager.createNotificationChannel(channel)
+    }
+
     private fun String.toChangelogSummary(): String? {
         val lines = lineSequence()
             .map { it.trim() }
@@ -273,6 +365,13 @@ class UpdateRepository(private val context: Context) {
             commitMessage?.takeIf { it.isNotBlank() }?.let { add("Change: $it") }
         }
         return summaryLines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }
+
+    private companion object {
+        const val UPDATE_CHECK_INTERVAL_MS = 12L * 60L * 60L * 1000L
+        const val UPDATE_NOTIFICATION_CHANNEL_ID = "pulse_updates"
+        const val UPDATE_NOTIFICATION_ID = 5015
+        const val UPDATE_NOTIFICATION_REQUEST_CODE = 1515
     }
 }
 

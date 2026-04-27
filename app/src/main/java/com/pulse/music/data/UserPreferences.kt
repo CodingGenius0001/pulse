@@ -1,9 +1,11 @@
 package com.pulse.music.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +34,10 @@ class UserPreferences(private val context: Context) {
     private val pendingUpdateBuildKey = intPreferencesKey("pending_update_build")
     private val pendingUpdateVersionKey = stringPreferencesKey("pending_update_version")
     private val pendingUpdateNotesKey = stringPreferencesKey("pending_update_notes")
+    private val updateNotificationsEnabledKey = booleanPreferencesKey("update_notifications_enabled")
+    private val updateNotificationsPromptedKey = booleanPreferencesKey("update_notifications_prompted")
+    private val updateNotificationsLastCheckKey = longPreferencesKey("update_notifications_last_check")
+    private val updateNotificationsLastNotifiedBuildKey = intPreferencesKey("update_notifications_last_notified_build")
 
     val theme: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         ThemePreference.fromValue(prefs[themeKey])
@@ -48,6 +54,22 @@ class UserPreferences(private val context: Context) {
             versionName = prefs[pendingUpdateVersionKey].orEmpty(),
             releaseNotes = prefs[pendingUpdateNotesKey].orEmpty(),
         )
+    }
+
+    val updateNotificationsEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[updateNotificationsEnabledKey] ?: true
+    }
+
+    val updateNotificationsPrompted: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[updateNotificationsPromptedKey] ?: false
+    }
+
+    val updateNotificationsLastCheck: Flow<Long> = context.dataStore.data.map { prefs ->
+        prefs[updateNotificationsLastCheckKey] ?: 0L
+    }
+
+    val updateNotificationsLastNotifiedBuild: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[updateNotificationsLastNotifiedBuildKey] ?: 0
     }
 
     suspend fun setTheme(theme: ThemePreference) {
@@ -72,6 +94,22 @@ class UserPreferences(private val context: Context) {
             it.remove(pendingUpdateVersionKey)
             it.remove(pendingUpdateNotesKey)
         }
+    }
+
+    suspend fun setUpdateNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[updateNotificationsEnabledKey] = enabled }
+    }
+
+    suspend fun setUpdateNotificationsPrompted(prompted: Boolean) {
+        context.dataStore.edit { it[updateNotificationsPromptedKey] = prompted }
+    }
+
+    suspend fun setUpdateNotificationsLastCheck(timestampMs: Long) {
+        context.dataStore.edit { it[updateNotificationsLastCheckKey] = timestampMs }
+    }
+
+    suspend fun setUpdateNotificationsLastNotifiedBuild(buildNumber: Int) {
+        context.dataStore.edit { it[updateNotificationsLastNotifiedBuildKey] = buildNumber }
     }
 }
 

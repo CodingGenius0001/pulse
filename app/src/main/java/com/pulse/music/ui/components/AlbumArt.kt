@@ -66,6 +66,7 @@ fun AlbumArt(
         val remoteArtUrl = metadata?.artworkUrl?.takeIf(String::isNotBlank)
         val remoteIdentityResolved =
             !metadata?.resolvedTitle.isNullOrBlank() || !metadata?.resolvedArtist.isNullOrBlank()
+        val allowEmbeddedFallback = song.artist.isKnownArtist() && song.album.isKnownAlbum()
 
         LaunchedEffect(song.id, remoteArtUrl) {
             if (remoteArtUrl.isNullOrBlank()) {
@@ -73,10 +74,12 @@ fun AlbumArt(
             }
         }
 
-        var useEmbeddedFallback by remember(song.id, remoteArtUrl, remoteIdentityResolved) { mutableStateOf(false) }
+        var useEmbeddedFallback by remember(song.id, remoteArtUrl, remoteIdentityResolved, allowEmbeddedFallback) {
+            mutableStateOf(false)
+        }
         val model: Any? = when {
             !remoteArtUrl.isNullOrBlank() && !useEmbeddedFallback -> remoteArtUrl
-            !remoteIdentityResolved -> song.albumArtUri
+            !remoteIdentityResolved && allowEmbeddedFallback -> song.albumArtUri
             else -> null
         }
 
@@ -113,6 +116,12 @@ fun AlbumArt(
         }
     }
 }
+
+private fun String.isKnownArtist(): Boolean =
+    isNotBlank() && !equals("Unknown artist", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
+
+private fun String.isKnownAlbum(): Boolean =
+    isNotBlank() && !equals("Unknown album", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
 
 @Composable
 private fun MusicNoteFallback(

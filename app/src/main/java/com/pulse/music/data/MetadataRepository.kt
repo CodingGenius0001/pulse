@@ -118,6 +118,7 @@ class MetadataRepository(
         val bestMusicBrainzMatch = pickBestMusicBrainzMatch(
             candidates = (primaryCandidates + retriedCandidates).distinctBy { it.recordingId },
             input = enrichedInput,
+            durationMs = song.durationMs,
         )
         val resolvedInput = bestMusicBrainzMatch
             ?.toMatchInput(fallbackInfo, enrichedInput)
@@ -278,14 +279,15 @@ class MetadataRepository(
     private suspend fun pickBestMusicBrainzMatch(
         candidates: List<MusicBrainzApi.SearchCandidate>,
         input: MatchInput,
+        durationMs: Long,
     ): MusicBrainzMatch? {
         if (candidates.isEmpty()) return null
 
         val shortlist = candidates
-            .map { hit -> hit to preliminaryScore(hit, input) }
-            .filter { (_, score) -> score >= 56 }
+            .map { hit -> hit to preliminaryScore(hit, input, durationMs) }
+            .filter { (_, score) -> score >= minimumMusicBrainzShortlistScore(input) }
             .sortedByDescending { (_, score) -> score }
-            .take(4)
+            .take(if (input.artist.isKnownArtist()) 4 else 6)
             .map { it.first }
 
         if (shortlist.isEmpty()) return null
@@ -295,11 +297,11 @@ class MetadataRepository(
             MusicBrainzMatch(
                 hit = hit,
                 details = details,
-                score = finalScore(hit, details, input),
+                score = finalScore(hit, details, input, durationMs),
             )
         }
 
-        val minimumScore = if (input.album.isKnownAlbum()) 82 else 68
+        val minimumScore = minimumMusicBrainzAcceptScore(input)
         return scored
             .filter { it.score >= minimumScore }
             .maxByOrNull { it.score }
@@ -335,7 +337,11 @@ class MetadataRepository(
             .maxByOrNull { it.score }
     }
 
-    private fun preliminaryScore(hit: MusicBrainzApi.SearchCandidate, input: MatchInput): Int {
+    private fun preliminaryScore(
+        hit: MusicBrainzApi.SearchCandidate,
+        input: MatchInput,
+        durationMs: Long,
+    ): Int {
         val titleScore = textScore(
             actual = hit.title.cleanKey(),
             expected = input.title.cleanKey(),
@@ -358,7 +364,12 @@ class MetadataRepository(
         }
         if (input.artist.isKnownArtist() && artistScore == 0) return 0
 
-        return titleScore + artistScore
+        val durationScore = durationScore(
+            actualMs = hit.lengthMs,
+            expectedMs = durationMs,
+        )
+
+        return titleScore + artistScore + durationScore
     }
 
     private fun preliminaryScore(hit: SearchHit, input: MatchInput): Int {
@@ -391,6 +402,7 @@ class MetadataRepository(
         hit: MusicBrainzApi.SearchCandidate,
         details: MusicBrainzApi.RecordingDetails?,
         input: MatchInput,
+        durationMs: Long,
     ): Int {
         val titleScore = textScore(
             actual = (details?.title ?: hit.title).cleanKey(),
@@ -427,7 +439,11 @@ class MetadataRepository(
         }
 
         val artScore = if (!details?.artworkUrl.isNullOrBlank()) 12 else 0
-        return titleScore + artistScore + albumScore + artScore
+        val durationScore = durationScore(
+            actualMs = hit.lengthMs,
+            expectedMs = durationMs,
+        )
+        return titleScore + artistScore + albumScore + artScore + durationScore
     }
 
     private fun finalScore(
@@ -499,7 +515,7 @@ class MetadataRepository(
 
         val missingArtistButMatched = cached.resolvedArtist.isNullOrBlank() &&
             cached.resolvedTitle.cleanKey() == input.title.cleanKey()
-        if (missingArtistButMatched && System.currentTimeMillis() - cached.fetchedAt >= ARTWORK_RETRY_WINDOW_MS) {
+        if (missingArtistButMatched) {
             return true
         }
 
@@ -509,8 +525,7 @@ class MetadataRepository(
                 input.artist.isUnknownArtist() ||
                     cached.resolvedArtist.cleanKey() == input.artist.cleanKey()
                 )
-        return missingArtworkButMatched &&
-            System.currentTimeMillis() - cached.fetchedAt >= ARTWORK_RETRY_WINDOW_MS
+        return missingArtworkButMatched
     }
 
     private fun textScore(actual: String, expected: String, exact: Int, contains: Int, overlap: Int): Int {
@@ -522,6 +537,31 @@ class MetadataRepository(
         if (actualTokens.isEmpty() || expectedTokens.isEmpty()) return 0
         val shared = actualTokens.intersect(expectedTokens).size
         return if (shared >= expectedTokens.size.coerceAtMost(2)) overlap else 0
+    }
+
+    private fun durationScore(actualMs: Long?, expectedMs: Long): Int {
+        if (actualMs == null || actualMs <= 0L || expectedMs <= 0L) return 0
+        val diff = abs(actualMs - expectedMs)
+        return when {
+            diff <= 2_000L -> 18
+            diff <= 5_000L -> 14
+            diff <= 10_000L -> 8
+            diff <= 15_000L -> 4
+            else -> 0
+        }
+    }
+
+    private fun minimumMusicBrainzShortlistScore(input: MatchInput): Int = when {
+        input.artist.isKnownArtist() -> 56
+        input.album.isKnownAlbum() -> 48
+        else -> 40
+    }
+
+    private fun minimumMusicBrainzAcceptScore(input: MatchInput): Int = when {
+        input.artist.isKnownArtist() && input.album.isKnownAlbum() -> 82
+        input.artist.isKnownArtist() -> 68
+        input.album.isKnownAlbum() -> 60
+        else -> 56
     }
 
     private fun SongMetadata.overrideInput(): MatchInput? {

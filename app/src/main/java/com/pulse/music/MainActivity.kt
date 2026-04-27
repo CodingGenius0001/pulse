@@ -17,6 +17,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -26,19 +30,35 @@ import androidx.compose.ui.unit.sp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.ui.PulseApp
 import com.pulse.music.ui.theme.PulseTheme
 
 class MainActivity : ComponentActivity() {
+    private var launchRoute by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        launchRoute = intent?.getStringExtra(EXTRA_OPEN_ROUTE)
         setContent {
             PulseTheme {
-                AppEntry()
+                AppEntry(
+                    launchRoute = launchRoute,
+                    onLaunchRouteConsumed = { launchRoute = null },
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        launchRoute = intent.getStringExtra(EXTRA_OPEN_ROUTE)
+    }
+
+    companion object {
+        const val EXTRA_OPEN_ROUTE = "open_route"
     }
 }
 
@@ -48,18 +68,45 @@ class MainActivity : ComponentActivity() {
  */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-private fun AppEntry() {
-    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+private fun AppEntry(
+    launchRoute: String?,
+    onLaunchRouteConsumed: () -> Unit,
+) {
+    val mediaPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         android.Manifest.permission.READ_MEDIA_AUDIO
     } else {
         android.Manifest.permission.READ_EXTERNAL_STORAGE
     }
-    val permissionState = rememberPermissionState(permission)
+    val mediaPermissionState = rememberPermissionState(mediaPermission)
+    val notificationPermissionState = rememberPermissionState(android.Manifest.permission.POST_NOTIFICATIONS)
+    val prefs = PulseApplication.get().userPreferences
+    val updateNotificationsEnabled by prefs.updateNotificationsEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val updateNotificationsPrompted by prefs.updateNotificationsPrompted.collectAsStateWithLifecycle(initialValue = false)
 
-    if (permissionState.status.isGranted) {
-        PulseApp()
+    LaunchedEffect(
+        mediaPermissionState.status.isGranted,
+        updateNotificationsEnabled,
+        updateNotificationsPrompted,
+    ) {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            mediaPermissionState.status.isGranted &&
+            updateNotificationsEnabled &&
+            !updateNotificationsPrompted &&
+            !notificationPermissionState.status.isGranted
+        ) {
+            prefs.setUpdateNotificationsPrompted(true)
+            notificationPermissionState.launchPermissionRequest()
+        }
+    }
+
+    if (mediaPermissionState.status.isGranted) {
+        PulseApp(
+            launchRoute = launchRoute,
+            onLaunchRouteConsumed = onLaunchRouteConsumed,
+        )
     } else {
-        PermissionGate(onRequest = { permissionState.launchPermissionRequest() })
+        PermissionGate(onRequest = { mediaPermissionState.launchPermissionRequest() })
     }
 }
 
