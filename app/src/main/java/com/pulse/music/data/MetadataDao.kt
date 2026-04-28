@@ -19,6 +19,9 @@ interface MetadataDao {
 
     @Query("DELETE FROM song_metadata WHERE songId = :songId")
     suspend fun delete(songId: Long)
+
+    @Query("UPDATE OR REPLACE song_metadata SET songId = :newSongId WHERE songId = :oldSongId")
+    suspend fun moveSongId(oldSongId: Long, newSongId: Long)
 }
 
 @Dao
@@ -31,4 +34,7 @@ interface LyricsDao {
 
     @Query("DELETE FROM song_lyrics WHERE songId = :songId")
     suspend fun delete(songId: Long)
+
+    @Query("UPDATE OR REPLACE song_lyrics SET songId = :newSongId WHERE songId = :oldSongId")
+    suspend fun moveSongId(oldSongId: Long, newSongId: Long)
 }

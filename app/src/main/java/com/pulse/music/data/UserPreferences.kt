@@ -38,6 +38,9 @@ class UserPreferences(private val context: Context) {
     private val updateNotificationsPromptedKey = booleanPreferencesKey("update_notifications_prompted")
     private val updateNotificationsLastCheckKey = longPreferencesKey("update_notifications_last_check")
     private val updateNotificationsLastNotifiedBuildKey = intPreferencesKey("update_notifications_last_notified_build")
+    private val dismissedUpdatePromptBuildKey = intPreferencesKey("dismissed_update_prompt_build")
+    private val lastLibraryScanAtKey = longPreferencesKey("last_library_scan_at")
+    private val lastMetadataRefreshAtKey = longPreferencesKey("last_metadata_refresh_at")
 
     val theme: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         ThemePreference.fromValue(prefs[themeKey])
@@ -70,6 +73,18 @@ class UserPreferences(private val context: Context) {
 
     val updateNotificationsLastNotifiedBuild: Flow<Int> = context.dataStore.data.map { prefs ->
         prefs[updateNotificationsLastNotifiedBuildKey] ?: 0
+    }
+
+    val dismissedUpdatePromptBuild: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[dismissedUpdatePromptBuildKey] ?: 0
+    }
+
+    val lastLibraryScanAt: Flow<Long> = context.dataStore.data.map { prefs ->
+        prefs[lastLibraryScanAtKey] ?: 0L
+    }
+
+    val lastMetadataRefreshAt: Flow<Long> = context.dataStore.data.map { prefs ->
+        prefs[lastMetadataRefreshAtKey] ?: 0L
     }
 
     suspend fun setTheme(theme: ThemePreference) {
@@ -110,6 +125,18 @@ class UserPreferences(private val context: Context) {
 
     suspend fun setUpdateNotificationsLastNotifiedBuild(buildNumber: Int) {
         context.dataStore.edit { it[updateNotificationsLastNotifiedBuildKey] = buildNumber }
+    }
+
+    suspend fun setDismissedUpdatePromptBuild(buildNumber: Int) {
+        context.dataStore.edit { it[dismissedUpdatePromptBuildKey] = buildNumber }
+    }
+
+    suspend fun setLastLibraryScanAt(timestampMs: Long) {
+        context.dataStore.edit { it[lastLibraryScanAtKey] = timestampMs }
+    }
+
+    suspend fun setLastMetadataRefreshAt(timestampMs: Long) {
+        context.dataStore.edit { it[lastMetadataRefreshAtKey] = timestampMs }
     }
 }
 

@@ -177,10 +177,16 @@ class LyricsRepository(
     private fun SongMetadata?.hasResolvedIdentity(): Boolean =
         this != null &&
             (
-                identityResolvedAt > 0L ||
-                    !resolvedTitle.isNullOrBlank() ||
-                    resolvedArtist.isKnownArtist() ||
-                    resolvedAlbum.isKnownAlbum()
+                geniusId != null ||
+                    !geniusUrl.isNullOrBlank() ||
+                    (
+                        !resolvedTitle.isNullOrBlank() &&
+                            resolvedArtist.isKnownArtist()
+                        ) ||
+                    (
+                        resolvedArtist.isKnownArtist() &&
+                            resolvedAlbum.isKnownAlbum()
+                        )
                 )
 
     private fun String?.isKnownArtist(): Boolean =

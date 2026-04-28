@@ -18,7 +18,12 @@ class PulseApplication : Application() {
     val database: PulseDatabase by lazy { PulseDatabase.create(this) }
     val scanner: MusicScanner by lazy { MusicScanner(this) }
     val repository: MusicRepository by lazy {
-        MusicRepository(database.musicDao(), scanner)
+        MusicRepository(
+            dao = database.musicDao(),
+            scanner = scanner,
+            metadataDao = database.metadataDao(),
+            lyricsDao = database.lyricsDao(),
+        )
     }
     val userPreferences: UserPreferences by lazy { UserPreferences(this) }
 

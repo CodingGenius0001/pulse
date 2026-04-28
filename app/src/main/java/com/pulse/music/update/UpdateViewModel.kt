@@ -72,6 +72,11 @@ class UpdateViewModel(
         _state.value = UpdateState.Idle
     }
 
+    fun showAvailable(info: UpdateInfo) {
+        activeJob?.cancel()
+        _state.value = UpdateState.Available(info)
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

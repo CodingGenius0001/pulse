@@ -79,20 +79,12 @@ class LibraryViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, "You")
 
     init {
-        rescan()
+        warmStartLibrary()
     }
 
     fun rescan() {
         viewModelScope.launch(Dispatchers.IO) {
-            _scanState.value = ScanState.Scanning
-            val count = repository.rescan()
-            _scanState.value = ScanState.Completed(count, System.currentTimeMillis())
-            _folderState.value = FolderState(
-                displayPath = repository.pulseFolderDisplayPath(),
-                fullPath = repository.pulseFolderPath(),
-                exists = repository.pulseFolderExists(),
-            )
-            launchLibraryEnrichment(force = false, userInitiated = false)
+            performRescan()
         }
     }
 
@@ -110,6 +102,48 @@ class LibraryViewModel(
 
     fun refreshAllMetadata() {
         launchLibraryEnrichment(force = true, userInitiated = true)
+    }
+
+    private fun warmStartLibrary() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _folderState.value = FolderState(
+                displayPath = repository.pulseFolderDisplayPath(),
+                fullPath = repository.pulseFolderPath(),
+                exists = repository.pulseFolderExists(),
+            )
+
+            val now = System.currentTimeMillis()
+            val hasSongs = repository.songCount() > 0
+            val lastScanAt = prefs.lastLibraryScanAt.first()
+            val shouldRescan = repository.pulseFolderExists() && (
+                !hasSongs || lastScanAt == 0L || now - lastScanAt >= LIBRARY_SCAN_INTERVAL_MS
+            )
+            if (shouldRescan) {
+                performRescan()
+            } else {
+                maybeLaunchBackgroundEnrichment(now)
+            }
+        }
+    }
+
+    private suspend fun performRescan() {
+        _scanState.value = ScanState.Scanning
+        val count = repository.rescan()
+        val finishedAt = System.currentTimeMillis()
+        prefs.setLastLibraryScanAt(finishedAt)
+        _scanState.value = ScanState.Completed(count, finishedAt)
+        _folderState.value = FolderState(
+            displayPath = repository.pulseFolderDisplayPath(),
+            fullPath = repository.pulseFolderPath(),
+            exists = repository.pulseFolderExists(),
+        )
+        launchLibraryEnrichment(force = false, userInitiated = false)
+    }
+
+    private suspend fun maybeLaunchBackgroundEnrichment(now: Long = System.currentTimeMillis()) {
+        val lastRefreshAt = prefs.lastMetadataRefreshAt.first()
+        if (lastRefreshAt != 0L && now - lastRefreshAt < AUTO_METADATA_REFRESH_INTERVAL_MS) return
+        launchLibraryEnrichment(force = false, userInitiated = false)
     }
 
     fun toggleLike(song: Song) {
@@ -163,6 +197,7 @@ class LibraryViewModel(
             }
             val total = candidates.size
             if (total == 0) {
+                prefs.setLastMetadataRefreshAt(System.currentTimeMillis())
                 _metadataRefreshState.value = MetadataRefreshState.Completed(
                     refreshed = 0,
                     total = 0,
@@ -221,6 +256,7 @@ class LibraryViewModel(
                     finishedAt = System.currentTimeMillis(),
                     userInitiated = userInitiated,
                 )
+                prefs.setLastMetadataRefreshAt(System.currentTimeMillis())
             } catch (t: Throwable) {
                 _metadataRefreshState.value = MetadataRefreshState.Error(
                     message = t.message ?: "Couldn't refresh metadata right now.",
@@ -311,6 +347,8 @@ class LibraryViewModel(
 
     companion object {
         private const val ENRICHMENT_CONCURRENCY = 4
+        private const val LIBRARY_SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000L
+        private const val AUTO_METADATA_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000L
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

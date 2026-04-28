@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,9 +55,12 @@ import com.pulse.music.ui.screens.SettingsScreen
 import com.pulse.music.ui.theme.LocalPulseBackgroundTint
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.update.UpdateRepository
+import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
 import com.pulse.music.util.ArtworkColorExtractor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Root composable. Owns the nav controller, shared ViewModels, bottom nav,
@@ -72,6 +76,7 @@ fun PulseApp(
     val playerVm: PlayerViewModel = viewModel(factory = PlayerViewModel.Factory())
     val updateVm: UpdateViewModel = viewModel(factory = UpdateViewModel.Factory)
     val playbackState by playerVm.state.collectAsStateWithLifecycle()
+    val updateState by updateVm.state.collectAsStateWithLifecycle()
     val app = remember { PulseApplication.get() }
     val scope = rememberCoroutineScope()
 
@@ -100,15 +105,22 @@ fun PulseApp(
     var showNowPlaying by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var changelogDismissed by remember { mutableStateOf(false) }
+    var showAppOpenUpdatePrompt by remember { mutableStateOf(false) }
     val pendingChangelog by produceState<UpdateRepository.PendingChangelog?>(initialValue = null) {
         value = app.updateRepository.pendingChangelogForCurrentInstall()
     }
+    val dismissedUpdatePromptBuild by app.userPreferences.dismissedUpdatePromptBuild.collectAsStateWithLifecycle(initialValue = 0)
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
     LaunchedEffect(Unit) {
-        app.updateRepository.checkForAppOpenUpdateNotification()
+        val info = withContext(Dispatchers.IO) {
+            app.updateRepository.checkForAppOpenUpdate()
+        }
+        if (info != null) {
+            updateVm.showAvailable(info)
+        }
     }
 
     LaunchedEffect(launchRoute) {
@@ -123,6 +135,13 @@ fun PulseApp(
             }
             onLaunchRouteConsumed()
         }
+    }
+
+    LaunchedEffect(updateState, dismissedUpdatePromptBuild, currentRoute) {
+        val available = updateState as? UpdateState.Available ?: return@LaunchedEffect
+        showAppOpenUpdatePrompt =
+            available.info.buildNumber > dismissedUpdatePromptBuild &&
+                currentRoute != Destination.Settings.route
     }
 
     PulseTheme(accentColor = artworkColor) {
@@ -264,6 +283,23 @@ fun PulseApp(
                         },
                     )
                 }
+
+                val available = updateState as? UpdateState.Available
+                if (available != null && showAppOpenUpdatePrompt) {
+                    AppOpenUpdateDialog(
+                        buildNumber = available.info.buildNumber,
+                        onOpen = {
+                            showAppOpenUpdatePrompt = false
+                            navigateTo(navController, Destination.Settings)
+                        },
+                        onDismiss = {
+                            showAppOpenUpdatePrompt = false
+                            scope.launch {
+                                app.userPreferences.setDismissedUpdatePromptBuild(available.info.buildNumber)
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -275,6 +311,47 @@ private fun navigateTo(navController: NavHostController, destination: Destinatio
         launchSingleTop = true
         restoreState = true
     }
+}
+
+@Composable
+private fun AppOpenUpdateDialog(
+    buildNumber: Int,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Update available",
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        },
+        text = {
+            Text(
+                text = "Build #$buildNumber is ready. Open Settings to download and install it.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.Button(
+                onClick = onOpen,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PulseTheme.colors.accentCream,
+                    contentColor = PulseTheme.colors.onPrimary,
+                ),
+            ) {
+                Text("Open updates")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Later", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
 }
 
 @Composable

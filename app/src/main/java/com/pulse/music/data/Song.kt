@@ -22,6 +22,8 @@ data class Song(
     val playCount: Int = 0,
     val lastPlayedAt: Long = 0, // ms since epoch; 0 = never
     val liked: Boolean = false,
+    val isAvailable: Boolean = true,
+    val lastSeenAt: Long = System.currentTimeMillis(),
 ) {
     /** URI to play via MediaStore. */
     val contentUri: Uri

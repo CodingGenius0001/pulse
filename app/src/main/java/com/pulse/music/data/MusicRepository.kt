@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.Flow
 class MusicRepository(
     private val dao: MusicDao,
     private val scanner: MusicScanner,
+    private val metadataDao: MetadataDao,
+    private val lyricsDao: LyricsDao,
 ) {
     // -------- Scanning --------
 
@@ -25,28 +27,41 @@ class MusicRepository(
     suspend fun rescan(): Int {
         val scanned = scanner.scanAll()
         if (scanned.isEmpty()) {
-            // Folder empty or doesn't exist — clear the library so stale
-            // songs from a previous scan don't linger.
             ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
             return dao.songCount()
         }
 
-        // Preserve user-state (likes, play counts) from existing rows
-        val existing = scanned.map { it.id }.let { ids ->
-            ids.mapNotNull { dao.getSong(it) }
-        }.associateBy { it.id }
+        val existingById = dao.getAllSongs().associateBy { it.id }
+        dao.markAllSongsUnavailable()
+        val seenAt = System.currentTimeMillis()
 
         val merged = scanned.map { s ->
-            val prev = existing[s.id]
-            s.copy(
+            val exact = existingById[s.id]
+            val byPath = dao.getSongByPath(s.dataPath)
+            val prev = exact ?: byPath
+            val targetSong = s.copy(
+                id = exact?.id ?: s.id,
                 playCount = prev?.playCount ?: 0,
                 lastPlayedAt = prev?.lastPlayedAt ?: 0L,
                 liked = prev?.liked ?: false,
+                isAvailable = true,
+                lastSeenAt = seenAt,
             )
+
+            if (byPath != null && byPath.id != s.id && exact == null) {
+                dao.upsertSongs(listOf(targetSong.copy(id = s.id)))
+                dao.movePlaylistRefs(byPath.id, s.id)
+                dao.deletePlaylistRefsForSong(byPath.id)
+                metadataDao.moveSongId(byPath.id, s.id)
+                lyricsDao.moveSongId(byPath.id, s.id)
+                dao.deleteSong(byPath.id)
+                targetSong.copy(id = s.id)
+            } else {
+                targetSong
+            }
         }
 
         dao.upsertSongs(merged)
-        dao.deleteSongsNotIn(merged.map { it.id })
 
         // Ensure the Liked system playlist exists
         ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
@@ -75,6 +90,8 @@ class MusicRepository(
     fun observeTopPlayed(limit: Int = 12): Flow<List<Song>> = dao.observeTopPlayed(limit)
 
     suspend fun getSong(id: Long): Song? = dao.getSong(id)
+
+    suspend fun songCount(): Int = dao.songCount()
 
     suspend fun toggleLike(song: Song) {
         dao.setLiked(song.id, !song.liked)

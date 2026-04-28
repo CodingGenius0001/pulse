@@ -351,6 +351,12 @@ updates to find the active line.
 
 ## Changelog
 
+### v0.5.19
+- Song availability is now preserved locally across rescans, so playlists, likes, cached metadata, and lyrics are no longer destroyed just because MediaStore temporarily misses files during an update or reopen
+- App startup no longer blindly rescans and re-runs metadata refresh on every launch; Pulse now throttles both scan and background enrichment work
+- App-open update discovery now has an in-app popup fallback in addition to the notification path, so new builds are still surfaced when Android suppresses notifications
+- Metadata retries now keep weaker partial matches retryable longer, which improves artist recovery and cover-art completion on songs that start with poor tags
+
 ### v0.5.18
 - Library scan now kicks off a faster background enrichment queue for unresolved artist, artwork, and lyrics instead of relying mostly on on-demand lookups
 - Metadata rows now track identity, artwork, and lyrics attempt state separately so incomplete songs retry the right stage instead of stalling blank

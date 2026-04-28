@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SongMetadata::class,
         SongLyrics::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class PulseDatabase : RoomDatabase() {
@@ -30,7 +30,7 @@ abstract class PulseDatabase : RoomDatabase() {
                 PulseDatabase::class.java,
                 "pulse.db",
             )
-                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
         }
 
@@ -110,6 +110,26 @@ abstract class PulseDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!db.hasColumn("songs", "isAvailable")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN isAvailable INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!db.hasColumn("songs", "lastSeenAt")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN lastSeenAt INTEGER NOT NULL DEFAULT 0")
+                }
+                db.execSQL(
+                    """
+                    UPDATE songs
+                    SET lastSeenAt = CASE
+                        WHEN lastSeenAt = 0 THEN strftime('%s','now') * 1000
+                        ELSE lastSeenAt
+                    END
+                    """.trimIndent()
+                )
+            }
+        }
+
         private fun migrateLegacySchemaToV5(db: SupportSQLiteDatabase) {
             if (db.hasTable("songs")) {
                 if (!db.hasColumn("songs", "playCount")) {
@@ -120,6 +140,13 @@ abstract class PulseDatabase : RoomDatabase() {
                 }
                 if (!db.hasColumn("songs", "liked")) {
                     db.execSQL("ALTER TABLE songs ADD COLUMN liked INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!db.hasColumn("songs", "isAvailable")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN isAvailable INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!db.hasColumn("songs", "lastSeenAt")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN lastSeenAt INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("UPDATE songs SET lastSeenAt = strftime('%s','now') * 1000 WHERE lastSeenAt = 0")
                 }
             }
 

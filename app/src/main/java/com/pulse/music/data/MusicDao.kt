@@ -14,23 +14,32 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSongs(songs: List<Song>)
 
-    @Query("DELETE FROM songs WHERE id NOT IN (:ids)")
-    suspend fun deleteSongsNotIn(ids: List<Long>)
+    @Query("UPDATE songs SET isAvailable = 0")
+    suspend fun markAllSongsUnavailable()
 
-    @Query("SELECT * FROM songs ORDER BY title COLLATE NOCASE ASC")
+    @Query("DELETE FROM songs WHERE id = :songId")
+    suspend fun deleteSong(songId: Long)
+
+    @Query("SELECT * FROM songs WHERE isAvailable = 1 ORDER BY title COLLATE NOCASE ASC")
     fun observeAllSongs(): Flow<List<Song>>
 
-    @Query("SELECT * FROM songs ORDER BY dateAdded DESC LIMIT :limit")
+    @Query("SELECT * FROM songs WHERE isAvailable = 1 ORDER BY dateAdded DESC LIMIT :limit")
     fun observeRecentlyAdded(limit: Int = 20): Flow<List<Song>>
 
-    @Query("SELECT * FROM songs WHERE lastPlayedAt > 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM songs WHERE isAvailable = 1 AND lastPlayedAt > 0 ORDER BY lastPlayedAt DESC LIMIT :limit")
     fun observeRecentlyPlayed(limit: Int = 20): Flow<List<Song>>
 
-    @Query("SELECT * FROM songs WHERE liked = 1 ORDER BY title COLLATE NOCASE ASC")
+    @Query("SELECT * FROM songs WHERE isAvailable = 1 AND liked = 1 ORDER BY title COLLATE NOCASE ASC")
     fun observeLikedSongs(): Flow<List<Song>>
 
     @Query("SELECT * FROM songs WHERE id = :id LIMIT 1")
     suspend fun getSong(id: Long): Song?
+
+    @Query("SELECT * FROM songs WHERE dataPath = :path LIMIT 1")
+    suspend fun getSongByPath(path: String): Song?
+
+    @Query("SELECT * FROM songs")
+    suspend fun getAllSongs(): List<Song>
 
     @Query("UPDATE songs SET liked = :liked WHERE id = :id")
     suspend fun setLiked(id: Long, liked: Boolean)
@@ -38,11 +47,14 @@ interface MusicDao {
     @Query("UPDATE songs SET playCount = playCount + 1, lastPlayedAt = :timestamp WHERE id = :id")
     suspend fun markPlayed(id: Long, timestamp: Long = System.currentTimeMillis())
 
-    @Query("SELECT * FROM songs ORDER BY playCount DESC LIMIT :limit")
+    @Query("SELECT * FROM songs WHERE isAvailable = 1 ORDER BY playCount DESC LIMIT :limit")
     fun observeTopPlayed(limit: Int = 12): Flow<List<Song>>
 
-    @Query("SELECT COUNT(*) FROM songs")
+    @Query("SELECT COUNT(*) FROM songs WHERE isAvailable = 1")
     suspend fun songCount(): Int
+
+    @Query("SELECT COUNT(*) FROM songs")
+    suspend fun totalSongCount(): Int
 
     // -------- Playlists --------
 
@@ -79,6 +91,7 @@ interface MusicDao {
         INNER JOIN playlist_song_cross_ref
             ON songs.id = playlist_song_cross_ref.songId
         WHERE playlist_song_cross_ref.playlistId = :playlistId
+          AND songs.isAvailable = 1
         ORDER BY playlist_song_cross_ref.addedAt DESC
         """
     )
@@ -90,12 +103,20 @@ interface MusicDao {
         INNER JOIN playlist_song_cross_ref
             ON songs.id = playlist_song_cross_ref.songId
         WHERE playlist_song_cross_ref.playlistId = :playlistId
+          AND songs.isAvailable = 1
         ORDER BY playlist_song_cross_ref.addedAt DESC
         """
     )
     suspend fun getSongsInPlaylist(playlistId: Long): List<Song>
 
-    @Query("SELECT COUNT(*) FROM playlist_song_cross_ref WHERE playlistId = :playlistId")
+    @Query(
+        """
+        SELECT COUNT(*) FROM playlist_song_cross_ref
+        INNER JOIN songs ON songs.id = playlist_song_cross_ref.songId
+        WHERE playlist_song_cross_ref.playlistId = :playlistId
+          AND songs.isAvailable = 1
+        """
+    )
     suspend fun getPlaylistSongCount(playlistId: Long): Int
 
     /**
@@ -107,9 +128,16 @@ interface MusicDao {
         INNER JOIN playlist_song_cross_ref
             ON songs.id = playlist_song_cross_ref.songId
         WHERE playlist_song_cross_ref.playlistId = :playlistId
+          AND songs.isAvailable = 1
         ORDER BY playlist_song_cross_ref.addedAt DESC
         LIMIT 4
         """
     )
     suspend fun getTopFourSongsForPlaylist(playlistId: Long): List<Song>
+
+    @Query("UPDATE OR IGNORE playlist_song_cross_ref SET songId = :newSongId WHERE songId = :oldSongId")
+    suspend fun movePlaylistRefs(oldSongId: Long, newSongId: Long)
+
+    @Query("DELETE FROM playlist_song_cross_ref WHERE songId = :oldSongId")
+    suspend fun deletePlaylistRefsForSong(oldSongId: Long)
 }

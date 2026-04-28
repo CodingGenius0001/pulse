@@ -31,8 +31,6 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.pulse.music.ui.PulseApp
 import com.pulse.music.ui.theme.PulseTheme
 
@@ -99,25 +97,6 @@ private fun AppEntry(
         ) {
             prefs.setUpdateNotificationsPrompted(true)
             notificationPermissionState.launchPermissionRequest()
-        }
-    }
-
-    LaunchedEffect(
-        mediaPermissionState.status.isGranted,
-        updateNotificationsEnabled,
-        notificationPermissionState.status.isGranted,
-    ) {
-        if (
-            mediaPermissionState.status.isGranted &&
-            updateNotificationsEnabled &&
-            (
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    notificationPermissionState.status.isGranted
-                )
-        ) {
-            withContext(Dispatchers.IO) {
-                PulseApplication.get().updateRepository.checkForAppOpenUpdateNotification()
-            }
         }
     }
 
