@@ -8,6 +8,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.common.util.UnstableApi
 import com.pulse.music.MainActivity
 
 /**
@@ -25,6 +26,7 @@ class PlayerService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    @UnstableApi
     override fun onCreate() {
         super.onCreate()
 

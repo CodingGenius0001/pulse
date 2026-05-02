@@ -224,6 +224,20 @@ fun NowPlayingScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                        ) {
+                            CircleButton(onClick = onBack, size = 42.dp) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.92f)
@@ -234,20 +248,6 @@ fun NowPlayingScreen(
                                 cornerRadius = 26.dp,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(12.dp),
-                            ) {
-                                CircleButton(onClick = onBack, size = 42.dp) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                        contentDescription = "Back",
-                                        tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            }
                         }
 
                         SingleLineLyric(line = inlineLyric)
@@ -478,6 +478,7 @@ fun NowPlayingScreen(
             FixMatchDialog(
                 initialTitle = displayTitle,
                 initialArtist = displayArtist,
+                initialAlbum = displayAlbum,
                 onDismiss = { showFixMatch = false },
                 onSave = { title, artist, album ->
                     showFixMatch = false
@@ -506,11 +507,11 @@ fun NowPlayingScreen(
                         }
                     }
                 },
-                onSearch = { title, artist ->
+                onSearch = { title, artist, album ->
                     app.lyricsRepository.searchCandidates(
                         title = title,
                         artist = artist,
-                        album = displayAlbum,
+                        album = album,
                         durationSeconds = song.durationMs / 1000,
                     )
                 },
@@ -1070,12 +1071,14 @@ private fun MatchRefreshMessageDialog(
 private fun FixMatchDialog(
     initialTitle: String,
     initialArtist: String,
+    initialAlbum: String,
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Unit,
-    onSearch: suspend (String, String) -> List<LrcLibApi.TrackInfo>,
+    onSearch: suspend (String, String, String) -> List<LrcLibApi.TrackInfo>,
 ) {
     var title by remember(initialTitle) { mutableStateOf(initialTitle) }
     var artist by remember(initialArtist) { mutableStateOf(initialArtist) }
+    var album by remember(initialAlbum) { mutableStateOf(initialAlbum) }
     var candidates by remember { mutableStateOf<List<LrcLibApi.TrackInfo>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -1093,6 +1096,7 @@ private fun FixMatchDialog(
                 )
                 MatchField(value = title, onValueChange = { title = it.take(120) }, placeholder = "Song title")
                 MatchField(value = artist, onValueChange = { artist = it.take(120) }, placeholder = "Artist (optional)")
+                MatchField(value = album, onValueChange = { album = it.take(120) }, placeholder = "Album (optional)")
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1102,7 +1106,7 @@ private fun FixMatchDialog(
                             isSearching = true
                             errorMessage = null
                             scope.launch {
-                                runCatching { onSearch(title.trim(), artist.trim()) }
+                                runCatching { onSearch(title.trim(), artist.trim(), album.trim()) }
                                     .onSuccess { candidates = it }
                                     .onFailure { throwable ->
                                         errorMessage = throwable.message ?: "Search failed."
@@ -1154,7 +1158,7 @@ private fun FixMatchDialog(
                                     onSave(
                                         candidate.title,
                                         candidate.artist?.takeIf { it.isNotBlank() } ?: artist.trim(),
-                                        candidate.album?.takeIf { it.isNotBlank() }.orEmpty(),
+                                        candidate.album?.takeIf { it.isNotBlank() } ?: album.trim(),
                                     )
                                 },
                             )

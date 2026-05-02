@@ -1,5 +1,6 @@
 package com.pulse.music.update
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -295,7 +296,9 @@ class UpdateRepository(private val context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    @SuppressLint("MissingPermission")
     private fun postUpdateNotification(info: UpdateInfo) {
+        if (!canPostNotifications()) return
         ensureNotificationChannel()
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
