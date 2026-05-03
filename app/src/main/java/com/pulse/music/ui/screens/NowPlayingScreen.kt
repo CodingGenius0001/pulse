@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -202,93 +203,100 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(34.dp))
-                        .background(PulseTheme.colors.surfaceElevated)
-                        .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(34.dp))
-                        .padding(20.dp),
+                        .padding(top = 14.dp),
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(34.dp))
+                            .background(PulseTheme.colors.surfaceElevated)
+                            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(34.dp))
+                            .padding(start = 20.dp, top = 18.dp, end = 20.dp, bottom = 18.dp),
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Start,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            CircleButton(onClick = onBack, size = 42.dp) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    contentDescription = "Back",
-                                    tint = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.92f)
-                                .aspectRatio(1f),
-                        ) {
-                            AlbumArt(
-                                song = song,
-                                cornerRadius = 26.dp,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-
-                        SingleLineLyric(line = inlineLyric)
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = displayTitle,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = "$displayArtist - $displayAlbum",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
                             Box(
                                 modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(CircleShape)
-                                    .background(PulseTheme.colors.surfaceSoft)
-                                    .clickable { vm.toggleLike() },
-                                contentAlignment = Alignment.Center,
+                                    .fillMaxWidth(0.92f)
+                                    .aspectRatio(1f),
                             ) {
-                                Icon(
-                                    imageVector = if (song.liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                    contentDescription = if (song.liked) "Unlike" else "Like",
-                                    tint = if (song.liked) PulseTheme.colors.accentPink else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(26.dp),
+                                AlbumArt(
+                                    song = song,
+                                    cornerRadius = 26.dp,
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             }
+
+                            SingleLineLyric(line = inlineLyric)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = displayTitle,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        style = MaterialTheme.typography.headlineLarge,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "$displayArtist - $displayAlbum",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .clip(CircleShape)
+                                        .background(PulseTheme.colors.surfaceSoft)
+                                        .clickable { vm.toggleLike() },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = if (song.liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                        contentDescription = if (song.liked) "Unlike" else "Like",
+                                        tint = if (song.liked) PulseTheme.colors.accentPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(26.dp),
+                                    )
+                                }
+                            }
                         }
+                    }
+
+                    CircleButton(
+                        onClick = onBack,
+                        size = 42.dp,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = 10.dp, y = 0.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
 
@@ -298,9 +306,9 @@ fun NowPlayingScreen(
                         .clip(RoundedCornerShape(28.dp))
                         .background(PulseTheme.colors.surfaceElevated)
                         .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(28.dp))
-                        .padding(18.dp),
+                        .padding(16.dp),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         WaveformScrubber(
                             waveSeed = song.id.toInt() xor displayTitle.hashCode(),
                             isPlaying = state.isPlaying,
@@ -350,7 +358,7 @@ fun NowPlayingScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 6.dp),
+                    .padding(bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 BottomAction(
@@ -572,7 +580,7 @@ private fun SingleLineLyric(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(34.dp)
+            .height(40.dp)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -587,7 +595,7 @@ private fun SingleLineLyric(
                 Text(
                     text = currentLine,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
