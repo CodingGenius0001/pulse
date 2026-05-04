@@ -22,6 +22,7 @@ import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
@@ -50,16 +51,22 @@ class SongImportManager(
         if (normalized.isBlank()) return@withContext emptyList()
 
         val service = ServiceList.YouTube
-        val handler = service.searchQHFactory.fromQuery(normalized, emptyList(), "")
+        val handler = service.searchQHFactory.fromQuery(
+            normalized,
+            listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS),
+            "",
+        )
         val searchInfo = SearchInfo.getInfo(service, handler)
 
         searchInfo.relatedItems
             .filterIsInstance<StreamInfoItem>()
             .mapNotNull { item ->
                 val url = item.url?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val title = cleanImportedTitle(item.name.orEmpty())
+                val artist = cleanImportedArtist(item.uploaderName.orEmpty())
                 ImportCandidate(
-                    title = item.name?.trim().orEmpty().ifBlank { "Unknown title" },
-                    artist = item.uploaderName?.trim().orEmpty().ifBlank { "Unknown artist" },
+                    title = title.ifBlank { "Unknown title" },
+                    artist = artist.ifBlank { "Unknown artist" },
                     durationMs = (item.duration.takeIf { it > 0 } ?: 0L) * 1000L,
                     url = url,
                 )
@@ -107,7 +114,8 @@ class SongImportManager(
                 scanMedia(uri)
             }
 
-            repository.rescan()
+            repository.ingestImportedSong(uri)
+                ?: throw IOException("Pulse downloaded the song but couldn't index the new file yet.")
 
             ImportedSong(
                 title = candidate.title,
@@ -315,6 +323,21 @@ class SongImportManager(
             .trim()
             .take(MAX_BASE_NAME_LENGTH)
             .ifBlank { "Pulse import" }
+
+    private fun cleanImportedTitle(raw: String): String =
+        raw.trim()
+            .replace(Regex("""\s*[-:|]\s*(official(\s+music)?\s+video|official\s+video|official\s+audio|audio|lyrics?|video|visualizer|mv)\b.*$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\((official(\s+music)?\s+video|official\s+video|official\s+audio|audio|lyrics?|video|visualizer|mv)[^)]*\)""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\[(official(\s+music)?\s+video|official\s+video|official\s+audio|audio|lyrics?|video|visualizer|mv)[^\]]*\]""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun cleanImportedArtist(raw: String): String =
+        raw.trim()
+            .replace(Regex("""\s*-\s*topic$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s*vevo$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 
     companion object {
         fun initializeExtractor() {

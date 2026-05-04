@@ -113,19 +113,21 @@ class MusicScanner(private val context: Context) {
         allResults
     }
 
-    private fun queryAudioInFolder(folderPath: String): List<Song> {
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA,
-            MediaStore.Audio.Media.DATE_ADDED,
-            MediaStore.Audio.Media.DISPLAY_NAME,
-        )
+    suspend fun scanByUri(uri: android.net.Uri): Song? = withContext(Dispatchers.IO) {
+        context.contentResolver.query(
+            uri,
+            projection(),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val song = songFromCursor(cursor)
+            if (song != null && isInsidePulseFolder(song.dataPath)) song else null
+        }
+    }
 
+    private fun queryAudioInFolder(folderPath: String): List<Song> {
         // Only real music tracks >= 30s. The IS_MUSIC=1 filter excludes ringtones,
         // notifications, and alarms that MediaStore classifies differently.
         // We match the path prefix so files living in subfolders of Pulse also count.
@@ -139,44 +141,70 @@ class MusicScanner(private val context: Context) {
         val results = mutableListOf<Song>()
         context.contentResolver.query(
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection,
+            projection(),
             selection,
             args,
             sortOrder,
         )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-            val dateAddedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
-            val displayNameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-
             while (cursor.moveToNext()) {
-                val rawTitle = cursor.getString(titleCol)
-                val rawArtist = cursor.getString(artistCol)
-                val rawAlbum = cursor.getString(albumCol)
-                val displayName = cursor.getString(displayNameCol)
-
-                results += Song(
-                    id = cursor.getLong(idCol),
-                    // Prefer the real title; fall back to filename without extension
-                    title = rawTitle?.takeUnless { it.isBlank() }
-                        ?: displayName?.substringBeforeLast(".")
-                        ?: "Unknown",
-                    artist = rawArtist?.takeUnless { it == "<unknown>" || it.isBlank() }
-                        ?: "Unknown artist",
-                    album = rawAlbum?.takeUnless { it == "<unknown>" || it.isBlank() }
-                        ?: "Unknown album",
-                    albumId = cursor.getLong(albumIdCol),
-                    durationMs = cursor.getLong(durationCol),
-                    dataPath = cursor.getString(dataCol) ?: "",
-                    dateAdded = cursor.getLong(dateAddedCol),
-                )
+                songFromCursor(cursor)?.let(results::add)
             }
         }
         return results
     }
+
+    private fun projection() = arrayOf(
+        MediaStore.Audio.Media._ID,
+        MediaStore.Audio.Media.TITLE,
+        MediaStore.Audio.Media.ARTIST,
+        MediaStore.Audio.Media.ALBUM,
+        MediaStore.Audio.Media.ALBUM_ID,
+        MediaStore.Audio.Media.DURATION,
+        MediaStore.Audio.Media.DATA,
+        MediaStore.Audio.Media.DATE_ADDED,
+        MediaStore.Audio.Media.DISPLAY_NAME,
+    )
+
+    private fun songFromCursor(cursor: android.database.Cursor): Song? {
+        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+        val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+        val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+        val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+        val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+        val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+        val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+        val dateAddedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+        val displayNameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+
+        val rawPath = cursor.getString(dataCol).orEmpty()
+        if (rawPath.isBlank()) return null
+
+        val rawTitle = cursor.getString(titleCol)
+        val rawArtist = cursor.getString(artistCol)
+        val rawAlbum = cursor.getString(albumCol)
+        val displayName = cursor.getString(displayNameCol)
+
+        return Song(
+            id = cursor.getLong(idCol),
+            title = rawTitle?.takeUnless { it.isBlank() }
+                ?: displayName?.substringBeforeLast(".")
+                ?: "Unknown",
+            artist = rawArtist?.takeUnless { it == "<unknown>" || it.isBlank() }
+                ?: "Unknown artist",
+            album = rawAlbum?.takeUnless { it == "<unknown>" || it.isBlank() }
+                ?: "Unknown album",
+            albumId = cursor.getLong(albumIdCol),
+            durationMs = cursor.getLong(durationCol),
+            dataPath = rawPath,
+            dateAdded = cursor.getLong(dateAddedCol),
+        )
+    }
+
+    private fun isInsidePulseFolder(path: String): Boolean =
+        pulseFolderCandidates()
+            .filter { it.exists() }
+            .ifEmpty { pulseFolderCandidates().take(1) }
+            .any { candidate ->
+                path.startsWith(candidate.absolutePath + File.separator) || path == candidate.absolutePath
+            }
 }

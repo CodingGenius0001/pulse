@@ -1,5 +1,6 @@
 package com.pulse.music.data
 
+import android.net.Uri
 import com.pulse.music.scanner.MusicScanner
 import kotlinx.coroutines.flow.Flow
 
@@ -31,37 +32,8 @@ class MusicRepository(
             return dao.songCount()
         }
 
-        val existingById = dao.getAllSongs().associateBy { it.id }
         dao.markAllSongsUnavailable()
-        val seenAt = System.currentTimeMillis()
-
-        val merged = scanned.map { s ->
-            val exact = existingById[s.id]
-            val byPath = dao.getSongByPath(s.dataPath)
-            val prev = exact ?: byPath
-            val targetSong = s.copy(
-                id = exact?.id ?: s.id,
-                playCount = prev?.playCount ?: 0,
-                lastPlayedAt = prev?.lastPlayedAt ?: 0L,
-                liked = prev?.liked ?: false,
-                isAvailable = true,
-                lastSeenAt = seenAt,
-            )
-
-            if (byPath != null && byPath.id != s.id && exact == null) {
-                dao.upsertSongs(listOf(targetSong.copy(id = s.id)))
-                dao.movePlaylistRefs(byPath.id, s.id)
-                dao.deletePlaylistRefsForSong(byPath.id)
-                metadataDao.moveSongId(byPath.id, s.id)
-                lyricsDao.moveSongId(byPath.id, s.id)
-                dao.deleteSong(byPath.id)
-                targetSong.copy(id = s.id)
-            } else {
-                targetSong
-            }
-        }
-
-        dao.upsertSongs(merged)
+        val merged = scanned.map { mergeScannedSong(it, markSeenNow = true) }
 
         // Ensure the Liked system playlist exists
         ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
@@ -69,11 +41,49 @@ class MusicRepository(
         return merged.size
     }
 
+    suspend fun ingestImportedSong(uri: Uri): Song? {
+        val scanned = scanner.scanByUri(uri) ?: return null
+        val merged = mergeScannedSong(scanned, markSeenNow = true)
+        ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
+        return merged
+    }
+
     /** Exposes the scanner's folder operations to the UI layer. */
     fun pulseFolderExists(): Boolean = scanner.pulseFolderExists()
     fun pulseFolderPath(): String = scanner.preferredPulseFolder().absolutePath
     fun pulseFolderDisplayPath(): String = scanner.shortDisplayPath()
     fun createPulseFolder(): Boolean = scanner.createPulseFolder()
+
+    private suspend fun mergeScannedSong(
+        scanned: Song,
+        markSeenNow: Boolean,
+    ): Song {
+        val existingById = dao.getSong(scanned.id)
+        val byPath = dao.getSongByPath(scanned.dataPath)
+        val previous = existingById ?: byPath
+        val seenAt = if (markSeenNow) System.currentTimeMillis() else scanned.lastSeenAt
+        val targetSong = scanned.copy(
+            id = existingById?.id ?: scanned.id,
+            playCount = previous?.playCount ?: 0,
+            lastPlayedAt = previous?.lastPlayedAt ?: 0L,
+            liked = previous?.liked ?: false,
+            isAvailable = true,
+            lastSeenAt = seenAt,
+        )
+
+        return if (byPath != null && byPath.id != scanned.id && existingById == null) {
+            dao.upsertSongs(listOf(targetSong.copy(id = scanned.id)))
+            dao.movePlaylistRefs(byPath.id, scanned.id)
+            dao.deletePlaylistRefsForSong(byPath.id)
+            metadataDao.moveSongId(byPath.id, scanned.id)
+            lyricsDao.moveSongId(byPath.id, scanned.id)
+            dao.deleteSong(byPath.id)
+            targetSong.copy(id = scanned.id)
+        } else {
+            dao.upsertSongs(listOf(targetSong))
+            targetSong
+        }
+    }
 
     private suspend fun ensureSystemPlaylist(type: String, name: String) {
         if (dao.getSystemPlaylist(type) == null) {

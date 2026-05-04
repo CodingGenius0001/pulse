@@ -211,14 +211,12 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(),
@@ -229,16 +227,16 @@ fun NowPlayingScreen(
                             .clip(RoundedCornerShape(34.dp))
                             .background(PulseTheme.colors.surfaceElevated)
                             .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(34.dp))
-                            .padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 16.dp),
+                            .padding(start = 22.dp, top = 20.dp, end = 22.dp, bottom = 18.dp),
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.92f)
+                                    .fillMaxWidth(0.9f)
                                     .aspectRatio(1f),
                             ) {
                                 AlbumArt(
@@ -295,7 +293,7 @@ fun NowPlayingScreen(
                         size = 42.dp,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .offset(x = (-3).dp, y = (-3).dp),
+                            .offset(x = (-10).dp, y = (-10).dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -312,7 +310,7 @@ fun NowPlayingScreen(
                         .clip(RoundedCornerShape(28.dp))
                         .background(PulseTheme.colors.surfaceElevated)
                         .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(28.dp))
-                        .padding(14.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         WaveformScrubber(
@@ -364,7 +362,7 @@ fun NowPlayingScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 10.dp),
+                    .padding(bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 BottomAction(
