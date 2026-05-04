@@ -11,6 +11,8 @@ import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
 import com.pulse.music.data.SongMetadata
 import com.pulse.music.data.UserPreferences
+import com.pulse.music.importer.ImportCandidate
+import com.pulse.music.importer.SongImportManager
 import com.pulse.music.lyrics.LyricsResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +35,7 @@ class LibraryViewModel(
     private val prefs: UserPreferences,
     private val metadataRepository: MetadataRepository,
     private val lyricsRepository: LyricsRepository,
+    private val songImportManager: SongImportManager,
 ) : ViewModel() {
 
     private val _scanState = MutableStateFlow<ScanState>(ScanState.Idle)
@@ -56,6 +59,8 @@ class LibraryViewModel(
     private val _metadataRefreshState = MutableStateFlow<MetadataRefreshState>(MetadataRefreshState.Idle)
     val metadataRefreshState: StateFlow<MetadataRefreshState> = _metadataRefreshState.asStateFlow()
     private var enrichmentJob: Job? = null
+    private val _songImportState = MutableStateFlow<SongImportState>(SongImportState.Idle)
+    val songImportState: StateFlow<SongImportState> = _songImportState.asStateFlow()
 
     val allSongs: StateFlow<List<Song>> = repository.observeAllSongs()
         .stateInEager(emptyList())
@@ -102,6 +107,62 @@ class LibraryViewModel(
 
     fun refreshAllMetadata() {
         launchLibraryEnrichment(force = true, userInitiated = true)
+    }
+
+    fun searchImportCandidates(query: String) {
+        val normalized = query.trim()
+        if (normalized.isBlank()) {
+            _songImportState.value = SongImportState.Idle
+            return
+        }
+
+        if (_songImportState.value is SongImportState.Downloading) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _songImportState.value = SongImportState.Searching(normalized)
+            try {
+                val results = songImportManager.search(normalized)
+                _songImportState.value = if (results.isEmpty()) {
+                    SongImportState.Error("Pulse couldn't find any matching songs for \"$normalized\".")
+                } else {
+                    SongImportState.Results(normalized, results)
+                }
+            } catch (t: Throwable) {
+                _songImportState.value = SongImportState.Error(
+                    t.message ?: "Pulse couldn't search for that song right now.",
+                )
+            }
+        }
+    }
+
+    fun importCandidate(candidate: ImportCandidate) {
+        if (_songImportState.value is SongImportState.Downloading) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _songImportState.value = SongImportState.Downloading(candidate, 0f)
+            try {
+                val imported = songImportManager.importSong(candidate) { progress ->
+                    _songImportState.value = SongImportState.Downloading(candidate, progress)
+                }
+                _folderState.value = FolderState(
+                    displayPath = repository.pulseFolderDisplayPath(),
+                    fullPath = repository.pulseFolderPath(),
+                    exists = repository.pulseFolderExists(),
+                )
+                _scanState.value = ScanState.Completed(repository.songCount(), System.currentTimeMillis())
+                _songImportState.value = SongImportState.Success(
+                    "Imported ${imported.title} into your Pulse folder.",
+                )
+            } catch (t: Throwable) {
+                _songImportState.value = SongImportState.Error(
+                    t.message ?: "Pulse couldn't import that song right now.",
+                )
+            }
+        }
+    }
+
+    fun resetSongImportState() {
+        _songImportState.value = SongImportState.Idle
     }
 
     private fun warmStartLibrary() {
@@ -345,6 +406,15 @@ class LibraryViewModel(
         data class Error(val message: String) : MetadataRefreshState
     }
 
+    sealed interface SongImportState {
+        data object Idle : SongImportState
+        data class Searching(val query: String) : SongImportState
+        data class Results(val query: String, val candidates: List<ImportCandidate>) : SongImportState
+        data class Downloading(val candidate: ImportCandidate, val progress: Float) : SongImportState
+        data class Success(val message: String) : SongImportState
+        data class Error(val message: String) : SongImportState
+    }
+
     companion object {
         private const val ENRICHMENT_CONCURRENCY = 4
         private const val LIBRARY_SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000L
@@ -359,6 +429,7 @@ class LibraryViewModel(
                     prefs = app.userPreferences,
                     metadataRepository = app.metadataRepository,
                     lyricsRepository = app.lyricsRepository,
+                    songImportManager = app.songImportManager,
                 ) as T
             }
         }

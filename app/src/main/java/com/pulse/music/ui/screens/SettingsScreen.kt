@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,10 +53,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.ThemePreference
+import com.pulse.music.importer.ImportCandidate
 import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
+import com.pulse.music.util.formatDuration
 import kotlinx.coroutines.launch
 
 @Composable
@@ -72,8 +75,10 @@ fun SettingsScreen(
     val prefs = PulseApplication.get().userPreferences
     val themePref by prefs.theme.collectAsStateWithLifecycle(initialValue = ThemePreference.Dark)
     val updateNotificationsEnabled by prefs.updateNotificationsEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val songImportState by vm.songImportState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showRenameDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
@@ -113,6 +118,13 @@ fun SettingsScreen(
                     title = "Rescan library",
                     subtitle = scanSub,
                     onClick = { vm.rescan() },
+                    trailing = { Chevron() },
+                )
+                SettingRow(
+                    title = "Import song",
+                    subtitle = "Search and pull a track straight into Pulse",
+                    leading = { SectionIcon(Icons.Filled.Download) },
+                    onClick = { showImportDialog = true },
                     trailing = { Chevron() },
                 )
                 MetadataRefreshRow(
@@ -182,6 +194,18 @@ fun SettingsScreen(
                 scope.launch { prefs.setUserName(newName) }
                 showRenameDialog = false
             },
+        )
+    }
+
+    if (showImportDialog) {
+        ImportSongDialog(
+            state = songImportState,
+            onDismiss = {
+                showImportDialog = false
+                vm.resetSongImportState()
+            },
+            onSearch = vm::searchImportCandidates,
+            onImport = vm::importCandidate,
         )
     }
 }
@@ -516,6 +540,190 @@ private fun RenameDialog(
         },
         containerColor = PulseTheme.colors.surface,
     )
+}
+
+@Composable
+private fun ImportSongDialog(
+    state: LibraryViewModel.SongImportState,
+    onDismiss: () -> Unit,
+    onSearch: (String) -> Unit,
+    onImport: (ImportCandidate) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import song", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it.take(80) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(PulseTheme.colors.surfaceElevated)
+                        .padding(14.dp),
+                    decorationBox = { inner ->
+                        if (query.isBlank()) {
+                            Text(
+                                text = "Search for a song or artist",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        inner()
+                    },
+                )
+
+                ActionButton(
+                    label = when (state) {
+                        is LibraryViewModel.SongImportState.Searching -> "Searching..."
+                        else -> "Search"
+                    },
+                    icon = Icons.Filled.Search,
+                    filled = true,
+                    onClick = { onSearch(query) },
+                )
+
+                when (state) {
+                    LibraryViewModel.SongImportState.Idle -> {
+                        Text(
+                            text = "Search YouTube for a track, then choose the exact result you want Pulse to import.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+
+                    is LibraryViewModel.SongImportState.Searching -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                color = PulseTheme.colors.accentViolet,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "Looking for matches...",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+
+                    is LibraryViewModel.SongImportState.Results -> {
+                        LazyColumn(
+                            modifier = Modifier.height(260.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            items(state.candidates.size) { index ->
+                                val candidate = state.candidates[index]
+                                ImportCandidateRow(
+                                    candidate = candidate,
+                                    onImport = { onImport(candidate) },
+                                )
+                            }
+                        }
+                    }
+
+                    is LibraryViewModel.SongImportState.Downloading -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                text = "Importing ${state.candidate.title}",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            LinearProgressIndicator(
+                                progress = { state.progress.coerceIn(0f, 1f) },
+                                color = PulseTheme.colors.accentViolet,
+                                trackColor = PulseTheme.colors.surfaceElevated,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                text = "${(state.progress * 100).toInt()}%",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+
+                    is LibraryViewModel.SongImportState.Success -> {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+
+                    is LibraryViewModel.SongImportState.Error -> {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
+}
+
+@Composable
+private fun ImportCandidateRow(
+    candidate: ImportCandidate,
+    onImport: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(PulseTheme.colors.surfaceElevated)
+            .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(22.dp))
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = candidate.title,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+            )
+            Text(
+                text = candidate.artist,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+            )
+            if (candidate.durationMs > 0) {
+                Text(
+                    text = formatDuration(candidate.durationMs),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+        ActionButton(
+            label = "Import",
+            icon = Icons.Filled.Download,
+            filled = false,
+            onClick = onImport,
+        )
+    }
 }
 
 @Composable

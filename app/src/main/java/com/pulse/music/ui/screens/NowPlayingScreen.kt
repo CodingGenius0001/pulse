@@ -468,6 +468,11 @@ fun NowPlayingScreen(
                 songTitle = displayTitle,
                 result = lyricsResult,
                 positionMs = state.positionMs,
+                isPlaying = state.isPlaying,
+                onPlayPause = { vm.playOrPause() },
+                onPrevious = { vm.previous() },
+                onNext = { vm.next() },
+                onSeekTo = { vm.seekTo(it) },
                 onClose = { lyricsExpanded = false },
             )
         }
@@ -591,17 +596,15 @@ private fun SingleLineLyric(
             },
             label = "singleLineLyric",
         ) { currentLine ->
-            if (currentLine != null) {
-                Text(
-                    text = currentLine,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            Text(
+                text = currentLine,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -611,6 +614,11 @@ private fun LyricsFullScreen(
     songTitle: String,
     result: LyricsResult?,
     positionMs: Long,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeekTo: (Long) -> Unit,
     onClose: () -> Unit,
 ) {
     Box(
@@ -659,7 +667,7 @@ private fun LyricsFullScreen(
 
             Spacer(Modifier.height(18.dp))
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
                 when (result) {
                     null -> {
                         Row(
@@ -681,7 +689,11 @@ private fun LyricsFullScreen(
 
                     is LyricsResult.Found -> {
                         if (result.synced) {
-                            SyncedLyricsBody(lrcText = result.text, positionMs = positionMs)
+                            SyncedLyricsBody(
+                                lrcText = result.text,
+                                positionMs = positionMs,
+                                onSeekTo = onSeekTo,
+                            )
                         } else {
                             PlainLyricsBody(text = result.text)
                         }
@@ -711,6 +723,52 @@ private fun LyricsFullScreen(
                     }
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(PulseTheme.colors.surfaceSoft)
+                    .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(26.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PillGroup {
+                        PillIconButton(onClick = onPrevious) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipPrevious,
+                                contentDescription = "Previous track",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                    PlayPill(onClick = onPlayPause) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = PulseTheme.colors.onPrimary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                    PillGroup {
+                        PillIconButton(onClick = onNext) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipNext,
+                                contentDescription = "Next track",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -719,6 +777,7 @@ private fun LyricsFullScreen(
 private fun SyncedLyricsBody(
     lrcText: String,
     positionMs: Long,
+    onSeekTo: (Long) -> Unit,
 ) {
     val lines = remember(lrcText) { parseLrc(lrcText) }
     if (lines.isEmpty()) {
@@ -749,7 +808,10 @@ private fun SyncedLyricsBody(
                 color = if (isActive) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = if (isActive) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
                 fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
-                modifier = Modifier.padding(vertical = if (isActive) 10.dp else 2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSeekTo(line.timestampMs) }
+                    .padding(vertical = if (isActive) 10.dp else 2.dp),
             )
         }
     }
