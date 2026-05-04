@@ -41,9 +41,19 @@ class MusicRepository(
         return merged.size
     }
 
-    suspend fun ingestImportedSong(uri: Uri): Song? {
+    suspend fun ingestImportedSong(
+        uri: Uri,
+        titleOverride: String? = null,
+        artistOverride: String? = null,
+        albumOverride: String? = null,
+    ): Song? {
         val scanned = scanner.scanByUri(uri) ?: return null
-        val merged = mergeScannedSong(scanned, markSeenNow = true)
+        val imported = scanned.copy(
+            title = titleOverride?.trim().takeUnless { it.isNullOrBlank() } ?: scanned.title,
+            artist = artistOverride?.trim().takeUnless { it.isNullOrBlank() } ?: scanned.artist,
+            album = albumOverride?.trim().takeUnless { it.isNullOrBlank() } ?: scanned.album,
+        )
+        val merged = mergeScannedSong(imported, markSeenNow = true)
         ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
         return merged
     }

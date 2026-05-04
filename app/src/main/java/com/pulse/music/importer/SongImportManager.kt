@@ -66,8 +66,8 @@ class SongImportManager(
             .filterIsInstance<StreamInfoItem>()
             .mapNotNull { item ->
                 val url = item.url?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                val title = cleanImportedTitle(item.name.orEmpty())
                 val artist = cleanImportedArtist(item.uploaderName.orEmpty())
+                val title = cleanImportedTitle(item.name.orEmpty(), artist)
                 ImportCandidate(
                     title = title.ifBlank { "Unknown title" },
                     artist = artist.ifBlank { "Unknown artist" },
@@ -84,7 +84,7 @@ class SongImportManager(
         onProgress: suspend (Float) -> Unit,
     ): ImportedSong = withContext(Dispatchers.IO) {
         val audioPlan = resolveDownloadPlan(candidate)
-        val baseName = sanitizeFileName("${candidate.title} - ${candidate.artist}")
+        val baseName = sanitizeFileName(candidate.title)
         val fileName = buildUniqueDisplayName(baseName, audioPlan.suffix)
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = "${Environment.DIRECTORY_MUSIC}${File.separator}PulseApp"
@@ -93,7 +93,6 @@ class SongImportManager(
             put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Audio.Media.TITLE, candidate.title)
             put(MediaStore.Audio.Media.ARTIST, candidate.artist)
-            put(MediaStore.Audio.Media.ALBUM, IMPORT_ALBUM_NAME)
             put(MediaStore.Audio.Media.MIME_TYPE, audioPlan.mimeType)
             put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Audio.Media.IS_MUSIC, 1)
@@ -118,9 +117,22 @@ class SongImportManager(
                 scanMedia(uri)
             }
 
-            val importedSong = repository.ingestImportedSong(uri)
+            val importedSong = repository.ingestImportedSong(
+                uri = uri,
+                titleOverride = candidate.title,
+                artistOverride = candidate.artist,
+            )
                 ?: throw IOException("Pulse downloaded the song but couldn't index the new file yet.")
-            metadataRepository.resolve(importedSong)
+            metadataRepository.resolve(
+                song = importedSong,
+                input = MetadataRepository.MatchInput(
+                    title = candidate.title,
+                    artist = candidate.artist,
+                    album = "Unknown album",
+                ),
+                persistOverride = true,
+                force = true,
+            )
             lyricsRepository.lyricsFor(importedSong)
 
             ImportedSong(
@@ -330,19 +342,39 @@ class SongImportManager(
             .take(MAX_BASE_NAME_LENGTH)
             .ifBlank { "Pulse import" }
 
-    private fun cleanImportedTitle(raw: String): String =
-        raw.trim()
+    private fun cleanImportedTitle(raw: String, artistHint: String): String {
+        val cleaned = raw.trim()
             .replace(Regex("""\s*[-:|]\s*(official(\s+music)?\s+video|official\s+video|official\s+audio|audio|lyrics?|video|visualizer|mv)\b.*$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""\((official(\s+music)?\s+video|official\s+video|official\s+audio|audio|lyrics?|video|visualizer|mv)[^)]*\)""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""\[(official(\s+music)?\s+video|official\s+video|official\s+audio|audio|lyrics?|video|visualizer|mv)[^\]]*\]""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\s+"), " ")
             .trim()
+        if (artistHint.isBlank()) return cleaned
+
+        val segments = cleaned.split(Regex("""\s[-:|]\s"""), limit = 2)
+        if (segments.size != 2) return cleaned
+
+        val first = segments[0].trim()
+        val second = segments[1].trim()
+        val artistKey = artistHint.cleanImportKey()
+        return when {
+            first.cleanImportKey() == artistKey && second.isNotBlank() -> second
+            second.cleanImportKey() == artistKey && first.isNotBlank() -> first
+            else -> cleaned
+        }
+    }
 
     private fun cleanImportedArtist(raw: String): String =
         raw.trim()
             .replace(Regex("""\s*-\s*topic$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""\s*vevo$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun String.cleanImportKey(): String =
+        lowercase()
+            .replace(Regex("""[^\p{L}\p{N}& ]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
             .trim()
 
     companion object {
@@ -362,7 +394,6 @@ class SongImportManager(
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
         private const val STREAM_REFRESH_ATTEMPTS = 2
         private const val DEFAULT_AUDIO_SUFFIX = "m4a"
-        private const val IMPORT_ALBUM_NAME = "Pulse Imports"
         private const val DOWNLOADER_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
     }

@@ -8,4 +8,5 @@
         writes pulse-debug.apk before triggering install.
     -->
     <cache-path name="updates" path="updates/" />
+    <external-path name="public_music" path="Music/" />
 </paths>

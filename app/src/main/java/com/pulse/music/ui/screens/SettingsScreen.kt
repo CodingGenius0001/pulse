@@ -1,5 +1,8 @@
 package com.pulse.music.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.provider.DocumentsContract
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.ThemePreference
@@ -59,6 +64,7 @@ import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
 import com.pulse.music.util.formatDuration
+import java.io.File
 import kotlinx.coroutines.launch
 
 @Composable
@@ -66,6 +72,7 @@ fun SettingsScreen(
     vm: LibraryViewModel,
     updateVm: UpdateViewModel,
 ) {
+    val context = LocalContext.current
     val scanState by vm.scanState.collectAsStateWithLifecycle()
     val metadataRefreshState by vm.metadataRefreshState.collectAsStateWithLifecycle()
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
@@ -105,6 +112,8 @@ fun SettingsScreen(
                     title = "Source folder",
                     subtitle = folderState.displayPath,
                     leading = { SectionIcon(Icons.Filled.FolderOpen) },
+                    onClick = { openSourceFolder(context, folderState.fullPath) },
+                    trailing = { Chevron() },
                 )
                 if (!folderState.exists) {
                     SettingRow(
@@ -208,6 +217,28 @@ fun SettingsScreen(
             onImport = vm::importCandidate,
         )
     }
+}
+
+private fun openSourceFolder(context: Context, path: String) {
+    val folder = File(path)
+    if (!folder.exists()) return
+
+    val authority = "${context.packageName}.fileprovider"
+    val folderUri = runCatching { FileProvider.getUriForFile(context, authority, folder) }.getOrNull() ?: return
+
+    val candidates = listOf(
+        Intent(Intent.ACTION_VIEW).setDataAndType(folderUri, DocumentsContract.Document.MIME_TYPE_DIR),
+        Intent(Intent.ACTION_VIEW).setDataAndType(folderUri, "resource/folder"),
+        Intent(Intent.ACTION_VIEW).setDataAndType(folderUri, "*/*"),
+    ).map { intent ->
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    val launchIntent = candidates.firstOrNull { candidate ->
+        candidate.resolveActivity(context.packageManager) != null
+    } ?: return
+
+    context.startActivity(launchIntent)
 }
 
 @Composable
