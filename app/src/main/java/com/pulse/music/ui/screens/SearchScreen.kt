@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,10 +57,12 @@ fun SearchScreen(
 ) {
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
+    var importQuery by remember { mutableStateOf<String?>(null) }
     val trimmed = query.trim()
     val results = remember(trimmed, allSongs) {
         if (trimmed.isEmpty()) SearchResults.empty() else filterLibrary(allSongs, trimmed)
     }
+    val songImportState by vm.songImportState.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -79,7 +82,10 @@ fun SearchScreen(
 
         when {
             trimmed.isEmpty() -> EmptyPrompt(libraryCount = allSongs.size)
-            results.isEmpty() -> NoResults(query = trimmed)
+            results.isEmpty() -> NoResults(
+                query = trimmed,
+                onImport = { importQuery = trimmed },
+            )
             else -> {
                 LazyColumn(
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
@@ -116,6 +122,20 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    val activeImportQuery = importQuery
+    if (activeImportQuery != null) {
+        ImportSongDialog(
+            state = songImportState,
+            onDismiss = {
+                importQuery = null
+                vm.resetSongImportState()
+            },
+            onSearch = vm::searchImportCandidates,
+            onImport = vm::importCandidate,
+            initialQuery = activeImportQuery,
+        )
     }
 }
 
@@ -200,15 +220,29 @@ private fun EmptyPrompt(libraryCount: Int) {
 }
 
 @Composable
-private fun NoResults(query: String) {
+private fun NoResults(
+    query: String,
+    onImport: () -> Unit,
+) {
     CenterState(
         title = "No matches",
         subtitle = "Nothing in your library matches \"$query\".",
+        actionLabel = "Download this song",
+        actionIcon = Icons.Filled.Download,
+        onAction = onImport,
+        secondaryText = "Search YouTube Music and import it into Pulse instead.",
     )
 }
 
 @Composable
-private fun CenterState(title: String, subtitle: String) {
+private fun CenterState(
+    title: String,
+    subtitle: String,
+    actionLabel: String? = null,
+    actionIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    onAction: (() -> Unit)? = null,
+    secondaryText: String? = null,
+) {
     Box(modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier
@@ -220,7 +254,55 @@ private fun CenterState(title: String, subtitle: String) {
         ) {
             Text(text = title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.headlineMedium)
             Text(text = subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+            if (!secondaryText.isNullOrBlank()) {
+                Text(
+                    text = secondaryText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (actionLabel != null && actionIcon != null && onAction != null) {
+                SearchImportButton(
+                    label = actionLabel,
+                    icon = actionIcon,
+                    onClick = onAction,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun SearchImportButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink),
+                ),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = PulseTheme.colors.onPrimary,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = label,
+            color = PulseTheme.colors.onPrimary,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

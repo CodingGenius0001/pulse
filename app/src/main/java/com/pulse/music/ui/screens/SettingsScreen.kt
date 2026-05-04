@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -215,6 +216,7 @@ fun SettingsScreen(
             },
             onSearch = vm::searchImportCandidates,
             onImport = vm::importCandidate,
+            initialQuery = "",
         )
     }
 }
@@ -574,13 +576,21 @@ private fun RenameDialog(
 }
 
 @Composable
-private fun ImportSongDialog(
+fun ImportSongDialog(
     state: LibraryViewModel.SongImportState,
     onDismiss: () -> Unit,
     onSearch: (String) -> Unit,
     onImport: (ImportCandidate) -> Unit,
+    initialQuery: String,
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
+
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank()) {
+            query = initialQuery
+            onSearch(initialQuery)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
