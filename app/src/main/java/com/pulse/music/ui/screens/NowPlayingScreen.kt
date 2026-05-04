@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -182,6 +184,11 @@ fun NowPlayingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            )
             .background(
                 Brush.verticalGradient(
                     listOf(PulseTheme.colors.surface, PulseTheme.background, PulseTheme.colors.surface),
@@ -203,19 +210,18 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Box(
                         modifier = Modifier
@@ -223,7 +229,7 @@ fun NowPlayingScreen(
                             .clip(RoundedCornerShape(34.dp))
                             .background(PulseTheme.colors.surfaceElevated)
                             .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(34.dp))
-                            .padding(start = 20.dp, top = 18.dp, end = 20.dp, bottom = 18.dp),
+                            .padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 16.dp),
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -289,7 +295,7 @@ fun NowPlayingScreen(
                         size = 42.dp,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .offset(x = 10.dp, y = 0.dp),
+                            .offset(x = (-3).dp, y = (-3).dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -306,9 +312,9 @@ fun NowPlayingScreen(
                         .clip(RoundedCornerShape(28.dp))
                         .background(PulseTheme.colors.surfaceElevated)
                         .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(28.dp))
-                        .padding(16.dp),
+                        .padding(14.dp),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         WaveformScrubber(
                             waveSeed = song.id.toInt() xor displayTitle.hashCode(),
                             isPlaying = state.isPlaying,
@@ -358,7 +364,7 @@ fun NowPlayingScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 2.dp),
+                    .padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 BottomAction(

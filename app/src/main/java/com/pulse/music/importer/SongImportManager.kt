@@ -72,13 +72,9 @@ class SongImportManager(
         candidate: ImportCandidate,
         onProgress: suspend (Float) -> Unit,
     ): ImportedSong = withContext(Dispatchers.IO) {
-        val streamInfo = StreamInfo.getInfo(ServiceList.YouTube, candidate.url)
-        val bestAudio = pickBestAudioStream(streamInfo.audioStreams)
-            ?: throw IOException("Pulse couldn't find a downloadable audio stream for that result.")
-
-        val suffix = bestAudio.format?.suffix?.ifBlank { null } ?: DEFAULT_AUDIO_SUFFIX
+        val audioPlan = resolveDownloadPlan(candidate)
         val baseName = sanitizeFileName("${candidate.title} - ${candidate.artist}")
-        val fileName = buildUniqueDisplayName(baseName, suffix)
+        val fileName = buildUniqueDisplayName(baseName, audioPlan.suffix)
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = "${Environment.DIRECTORY_MUSIC}${File.separator}PulseApp"
 
@@ -87,7 +83,7 @@ class SongImportManager(
             put(MediaStore.Audio.Media.TITLE, candidate.title)
             put(MediaStore.Audio.Media.ARTIST, candidate.artist)
             put(MediaStore.Audio.Media.ALBUM, IMPORT_ALBUM_NAME)
-            put(MediaStore.Audio.Media.MIME_TYPE, bestAudio.format?.mimeType ?: "audio/*")
+            put(MediaStore.Audio.Media.MIME_TYPE, audioPlan.mimeType)
             put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
             put(MediaStore.Audio.Media.IS_MUSIC, 1)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -100,9 +96,7 @@ class SongImportManager(
             ?: throw IOException("Pulse couldn't create a destination file in the music folder.")
 
         try {
-            val audioUrl = bestAudio.content.takeIf { bestAudio.isUrl }
-                ?: throw IOException("This audio stream isn't directly downloadable.")
-            downloadToUri(uri, audioUrl, candidate.url, onProgress)
+            downloadToUri(uri, audioPlan.streamUrl, candidate.url, onProgress)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val readyValues = ContentValues().apply {
@@ -125,6 +119,36 @@ class SongImportManager(
             resolver.delete(uri, null, null)
             throw t
         }
+    }
+
+    private suspend fun resolveDownloadPlan(candidate: ImportCandidate): DownloadPlan {
+        val attemptedUrls = linkedSetOf<String>()
+        var lastFailure: IOException? = null
+
+        repeat(STREAM_REFRESH_ATTEMPTS) {
+            val streamInfo = StreamInfo.getInfo(ServiceList.YouTube, candidate.url)
+            val candidates = rankAudioStreams(streamInfo.audioStreams)
+            if (candidates.isEmpty()) {
+                throw IOException("Pulse couldn't find a downloadable audio stream for that result.")
+            }
+
+            candidates.forEach { stream ->
+                val url = stream.content.takeIf { stream.isUrl } ?: return@forEach
+                if (!attemptedUrls.add(url)) return@forEach
+
+                val suffix = stream.format?.suffix?.ifBlank { null } ?: DEFAULT_AUDIO_SUFFIX
+                val mimeType = stream.format?.mimeType ?: "audio/*"
+                val plan = DownloadPlan(streamUrl = url, suffix = suffix, mimeType = mimeType)
+                try {
+                    verifyStream(plan.streamUrl, candidate.url)
+                    return plan
+                } catch (ioe: IOException) {
+                    lastFailure = ioe
+                }
+            }
+        }
+
+        throw lastFailure ?: IOException("Pulse couldn't prepare a stable audio stream for that song.")
     }
 
     private suspend fun downloadToUri(
@@ -178,6 +202,36 @@ class SongImportManager(
         onProgress(1f)
     }
 
+    private fun verifyStream(
+        sourceUrl: String,
+        sourcePageUrl: String,
+    ) {
+        val request = Request.Builder()
+            .url(sourceUrl)
+            .header("User-Agent", DOWNLOADER_USER_AGENT)
+            .header("Accept", "*/*")
+            .header("Accept-Encoding", "identity")
+            .header("Origin", "https://www.youtube.com")
+            .header("Referer", sourcePageUrl)
+            .header("Range", "bytes=0-0")
+            .get()
+            .build()
+
+        HttpClient.instance.newCall(request).execute().use { response ->
+            if (response.isSuccessful) return
+
+            val bodySnippet = response.peekBody(1024).string()
+            val message = when {
+                bodySnippet.contains("reload", ignoreCase = true) ->
+                    "YouTube rejected that stream and asked for a fresh playback session."
+                bodySnippet.contains("sign in", ignoreCase = true) ->
+                    "YouTube blocked that stream behind an interactive playback check."
+                else -> "Pulse couldn't validate the stream (HTTP ${response.code})."
+            }
+            throw IOException(message)
+        }
+    }
+
     private suspend fun scanMedia(uri: Uri) {
         val path = resolvePathFromUri(uri) ?: return
         suspendCancellableCoroutine<Unit> { continuation ->
@@ -221,16 +275,22 @@ class SongImportManager(
         )?.use { it.moveToFirst() } == true
     }
 
-    private fun pickBestAudioStream(streams: List<AudioStream>): AudioStream? =
+    private fun rankAudioStreams(streams: List<AudioStream>): List<AudioStream> =
         streams
-            .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-            .maxWithOrNull(
-                compareBy<AudioStream>(
-                    { audioFormatRank(it.format) },
-                    { it.averageBitrate },
-                    { it.bitrate },
-                ),
+            .filter { it.isUrl }
+            .sortedWith(
+                compareByDescending<AudioStream> { deliveryMethodRank(it.deliveryMethod) }
+                    .thenByDescending { audioFormatRank(it.format) }
+                    .thenByDescending { it.averageBitrate }
+                    .thenByDescending { it.bitrate },
             )
+
+    private fun deliveryMethodRank(deliveryMethod: DeliveryMethod?): Int = when (deliveryMethod) {
+        DeliveryMethod.PROGRESSIVE_HTTP -> 3
+        DeliveryMethod.DASH -> 2
+        DeliveryMethod.HLS -> 1
+        else -> 0
+    }
 
     private fun audioFormatRank(format: MediaFormat?): Int = when (format) {
         MediaFormat.M4A -> 5
@@ -271,9 +331,16 @@ class SongImportManager(
         private const val MAX_BASE_NAME_LENGTH = 80
         private const val MIN_IMPORT_DURATION_MS = 30_000L
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
+        private const val STREAM_REFRESH_ATTEMPTS = 2
         private const val DEFAULT_AUDIO_SUFFIX = "m4a"
         private const val IMPORT_ALBUM_NAME = "Pulse Imports"
         private const val DOWNLOADER_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
     }
+
+    private data class DownloadPlan(
+        val streamUrl: String,
+        val suffix: String,
+        val mimeType: String,
+    )
 }

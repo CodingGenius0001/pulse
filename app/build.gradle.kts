@@ -179,7 +179,7 @@ dependencies {
     // Networking
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.8")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.1")
 
     debugImplementation(libs.androidx.ui.tooling)
 }
