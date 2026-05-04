@@ -19,6 +19,7 @@ import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.exceptions.ExtractionException
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.io.File
@@ -101,7 +102,7 @@ class SongImportManager(
         try {
             val audioUrl = bestAudio.content.takeIf { bestAudio.isUrl }
                 ?: throw IOException("This audio stream isn't directly downloadable.")
-            downloadToUri(uri, audioUrl, onProgress)
+            downloadToUri(uri, audioUrl, candidate.url, onProgress)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val readyValues = ContentValues().apply {
@@ -129,11 +130,17 @@ class SongImportManager(
     private suspend fun downloadToUri(
         targetUri: Uri,
         sourceUrl: String,
+        sourcePageUrl: String,
         onProgress: suspend (Float) -> Unit,
     ) {
         val request = Request.Builder()
             .url(sourceUrl)
             .header("User-Agent", DOWNLOADER_USER_AGENT)
+            .header("Accept", "*/*")
+            .header("Accept-Encoding", "identity")
+            .header("Origin", "https://www.youtube.com")
+            .header("Referer", sourcePageUrl)
+            .header("Range", "bytes=0-")
             .get()
             .build()
 
@@ -216,7 +223,7 @@ class SongImportManager(
 
     private fun pickBestAudioStream(streams: List<AudioStream>): AudioStream? =
         streams
-            .filter { it.isUrl }
+            .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
             .maxWithOrNull(
                 compareBy<AudioStream>(
                     { audioFormatRank(it.format) },
