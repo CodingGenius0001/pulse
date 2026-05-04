@@ -44,7 +44,14 @@ class PulseApplication : Application() {
     }
 
     val updateRepository: UpdateRepository by lazy { UpdateRepository(this) }
-    val songImportManager: SongImportManager by lazy { SongImportManager(this, repository) }
+    val songImportManager: SongImportManager by lazy {
+        SongImportManager(
+            context = this,
+            repository = repository,
+            metadataRepository = metadataRepository,
+            lyricsRepository = lyricsRepository,
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()

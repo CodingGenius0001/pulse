@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.pulse.music.data.LyricsRepository
+import com.pulse.music.data.MetadataRepository
 import com.pulse.music.data.MusicRepository
 import com.pulse.music.network.HttpClient
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +46,8 @@ data class ImportedSong(
 class SongImportManager(
     private val context: Context,
     private val repository: MusicRepository,
+    private val metadataRepository: MetadataRepository,
+    private val lyricsRepository: LyricsRepository,
 ) {
 
     suspend fun search(query: String): List<ImportCandidate> = withContext(Dispatchers.IO) {
@@ -114,8 +118,10 @@ class SongImportManager(
                 scanMedia(uri)
             }
 
-            repository.ingestImportedSong(uri)
+            val importedSong = repository.ingestImportedSong(uri)
                 ?: throw IOException("Pulse downloaded the song but couldn't index the new file yet.")
+            metadataRepository.resolve(importedSong)
+            lyricsRepository.lyricsFor(importedSong)
 
             ImportedSong(
                 title = candidate.title,
