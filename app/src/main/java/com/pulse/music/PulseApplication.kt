@@ -8,12 +8,17 @@ import com.pulse.music.data.PulseDatabase
 import com.pulse.music.data.UserPreferences
 import com.pulse.music.scanner.MusicScanner
 import com.pulse.music.update.UpdateRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Application class. Holds singleton instances of the database and repositories
  * so they can be shared across ViewModels without a DI framework.
  */
 class PulseApplication : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val database: PulseDatabase by lazy { PulseDatabase.create(this) }
     val scanner: MusicScanner by lazy { MusicScanner(this) }
@@ -42,6 +47,9 @@ class PulseApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
+        appScope.launch {
+            updateRepository.syncBackgroundChecks()
+        }
     }
 
     companion object {

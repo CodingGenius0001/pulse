@@ -132,7 +132,7 @@ fun SettingsScreen(
                 SettingRow(
                     title = "Release notifications",
                     subtitle = if (updateNotificationsEnabled) {
-                        "Check on app open and notify when a newer build exists"
+                        "Check in the background and notify when a newer build exists"
                     } else {
                         "Only show updates when you check manually"
                     },
@@ -140,7 +140,18 @@ fun SettingsScreen(
                         BooleanToggle(
                             enabled = updateNotificationsEnabled,
                             onToggle = { enabled ->
-                                scope.launch { prefs.setUpdateNotificationsEnabled(enabled) }
+                                scope.launch {
+                                    prefs.setUpdateNotificationsEnabled(enabled)
+                                    if (enabled) {
+                                        prefs.setUpdateNotificationsPrompted(false)
+                                        com.pulse.music.PulseApplication.get()
+                                            .updateRepository
+                                            .enqueueImmediateBackgroundCheck()
+                                    }
+                                    com.pulse.music.PulseApplication.get()
+                                        .updateRepository
+                                        .syncBackgroundChecks()
+                                }
                             },
                         )
                     },

@@ -85,6 +85,7 @@ private fun AppEntry(
 
     LaunchedEffect(
         mediaPermissionState.status.isGranted,
+        notificationPermissionState.status.isGranted,
         updateNotificationsEnabled,
         updateNotificationsPrompted,
     ) {

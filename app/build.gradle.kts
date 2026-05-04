@@ -168,6 +168,7 @@ dependencies {
 
     // DataStore preferences
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Palette for album art color extraction
     implementation(libs.androidx.palette.ktx)

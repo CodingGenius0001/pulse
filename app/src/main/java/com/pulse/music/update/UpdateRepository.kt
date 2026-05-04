@@ -14,6 +14,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.pulse.music.BuildConfig
 import com.pulse.music.MainActivity
 import com.pulse.music.R
@@ -26,6 +33,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Top-level state of the in-app updater. Used by Settings + the Home banner
@@ -72,6 +80,56 @@ class UpdateRepository(private val context: Context) {
     )
 
     suspend fun checkForAppOpenUpdate(force: Boolean = false): UpdateInfo? {
+        return checkForUpdateAndNotifyIfNeeded(force = force)
+    }
+
+    suspend fun checkForScheduledUpdate() {
+        checkForUpdateAndNotifyIfNeeded(force = false)
+    }
+
+    suspend fun syncBackgroundChecks() {
+        val prefs = PulseApplicationHolder.preferences(context)
+        val workManager = WorkManager.getInstance(context)
+        if (!prefs.updateNotificationsEnabled.first()) {
+            workManager.cancelUniqueWork(UPDATE_CHECK_PERIODIC_WORK_NAME)
+            workManager.cancelUniqueWork(UPDATE_CHECK_IMMEDIATE_WORK_NAME)
+            NotificationManagerCompat.from(context).cancel(UPDATE_NOTIFICATION_ID)
+            return
+        }
+
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val periodicRequest = PeriodicWorkRequestBuilder<UpdateCheckWorker>(
+            UPDATE_CHECK_INTERVAL_HOURS,
+            TimeUnit.HOURS,
+        )
+            .setConstraints(constraints)
+            .build()
+        workManager.enqueueUniquePeriodicWork(
+            UPDATE_CHECK_PERIODIC_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            periodicRequest,
+        )
+    }
+
+    fun enqueueImmediateBackgroundCheck(force: Boolean = true) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<UpdateCheckWorker>()
+            .setConstraints(constraints)
+            .setInputData(if (force) UpdateCheckWorker.forceInput() else androidx.work.Data.EMPTY)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            UPDATE_CHECK_IMMEDIATE_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
+    private suspend fun checkForUpdateAndNotifyIfNeeded(force: Boolean): UpdateInfo? {
         val prefs = PulseApplicationHolder.preferences(context)
         if (!prefs.updateNotificationsEnabled.first()) return null
 
@@ -376,9 +434,12 @@ class UpdateRepository(private val context: Context) {
 
     private companion object {
         const val UPDATE_CHECK_INTERVAL_MS = 12L * 60L * 60L * 1000L
+        const val UPDATE_CHECK_INTERVAL_HOURS = 12L
         const val UPDATE_NOTIFICATION_CHANNEL_ID = "pulse_updates"
         const val UPDATE_NOTIFICATION_ID = 5015
         const val UPDATE_NOTIFICATION_REQUEST_CODE = 1515
+        const val UPDATE_CHECK_PERIODIC_WORK_NAME = "pulse_update_periodic_check"
+        const val UPDATE_CHECK_IMMEDIATE_WORK_NAME = "pulse_update_immediate_check"
     }
 }
 

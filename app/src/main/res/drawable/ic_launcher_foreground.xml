@@ -4,13 +4,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Outer ring -->
     <path
-        android:pathData="M54,32 A22,22 0 1,1 54,76 A22,22 0 1,1 54,32 Z M54,40 A14,14 0 1,0 54,68 A14,14 0 1,0 54,40 Z"
+        android:pathData="M54,18A36,36 0 1,1 54,90A36,36 0 1,1 54,18ZM54,29A25,25 0 1,0 54,79A25,25 0 1,0 54,29Z"
         android:fillColor="#FFFAFAF8"
         android:fillType="evenOdd" />
-    <!-- Inner dot -->
     <path
-        android:pathData="M54,50 A4,4 0 1,1 54,58 A4,4 0 1,1 54,50 Z"
-        android:fillColor="#FFA78BFA" />
+        android:pathData="M54,46A6,6 0 1,1 54,58A6,6 0 1,1 54,46Z"
+        android:fillColor="#FFE6C98A" />
+    <path
+        android:pathData="M66,28V63.5c-2.3,-1.5 -5.1,-2.3 -8.1,-2.1c-6.9,0.4 -12.3,5.8 -12.7,12.7c-0.4,8.3 6.2,15.1 14.4,15.1c7.8,0 14.1,-6.3 14.1,-14.1V42h12.3V28Z"
+        android:fillColor="#FFE6C98A" />
 </vector>
