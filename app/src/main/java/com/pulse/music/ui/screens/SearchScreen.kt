@@ -18,10 +18,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,13 +56,12 @@ fun SearchScreen(
     onSongTap: (List<Song>, Int) -> Unit,
 ) {
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
+    val recentSearches by vm.recentLibrarySearches.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
-    var importQuery by remember { mutableStateOf<String?>(null) }
     val trimmed = query.trim()
     val results = remember(trimmed, allSongs) {
         if (trimmed.isEmpty()) SearchResults.empty() else filterLibrary(allSongs, trimmed)
     }
-    val songImportState by vm.songImportState.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -77,15 +76,21 @@ fun SearchScreen(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.padding(top = 12.dp))
-            SearchField(query = query, onQueryChange = { query = it }, onClear = { query = "" })
+            SearchField(
+                query = query,
+                onQueryChange = { query = it },
+                onClear = { query = "" },
+                onSubmit = { vm.recordLibrarySearch(trimmed) },
+            )
         }
 
         when {
-            trimmed.isEmpty() -> EmptyPrompt(libraryCount = allSongs.size)
-            results.isEmpty() -> NoResults(
-                query = trimmed,
-                onImport = { importQuery = trimmed },
+            trimmed.isEmpty() -> EmptyPrompt(
+                libraryCount = allSongs.size,
+                recentSearches = recentSearches,
+                onRecentSearchTap = { query = it },
             )
+            results.isEmpty() -> NoResults(query = trimmed)
             else -> {
                 LazyColumn(
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
@@ -94,7 +99,10 @@ fun SearchScreen(
                     if (results.songs.isNotEmpty()) {
                         item { ResultSectionLabel("Songs") }
                         items(results.songs.size) { index ->
-                            SongRow(song = results.songs[index], onClick = { onSongTap(results.songs, index) })
+                            SongRow(song = results.songs[index], onClick = {
+                                vm.recordLibrarySearch(trimmed)
+                                onSongTap(results.songs, index)
+                            })
                         }
                     }
                     if (results.albums.isNotEmpty()) {
@@ -105,7 +113,10 @@ fun SearchScreen(
                                 artist = songs.firstOrNull()?.artist.orEmpty(),
                                 songCount = songs.size,
                                 representative = songs.first(),
-                                onClick = { onSongTap(songs, 0) },
+                                onClick = {
+                                    vm.recordLibrarySearch(trimmed)
+                                    onSongTap(songs, 0)
+                                },
                             )
                         }
                     }
@@ -115,27 +126,16 @@ fun SearchScreen(
                             ArtistHit(
                                 artist = artistName,
                                 songCount = songs.size,
-                                onClick = { onSongTap(songs, 0) },
+                                onClick = {
+                                    vm.recordLibrarySearch(trimmed)
+                                    onSongTap(songs, 0)
+                                },
                             )
                         }
                     }
                 }
             }
         }
-    }
-
-    val activeImportQuery = importQuery
-    if (activeImportQuery != null) {
-        ImportSongDialog(
-            state = songImportState,
-            onDismiss = {
-                importQuery = null
-                vm.resetSongImportState()
-            },
-            onSearch = vm::searchImportCandidates,
-            onImport = vm::importCandidate,
-            initialQuery = activeImportQuery,
-        )
     }
 }
 
@@ -144,6 +144,7 @@ private fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
+    onSubmit: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -184,6 +185,7 @@ private fun SearchField(
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.onBackground),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -208,7 +210,11 @@ private fun SearchField(
 }
 
 @Composable
-private fun EmptyPrompt(libraryCount: Int) {
+private fun EmptyPrompt(
+    libraryCount: Int,
+    recentSearches: List<String>,
+    onRecentSearchTap: (String) -> Unit,
+) {
     CenterState(
         title = if (libraryCount == 0) "Nothing to search yet" else "Start typing",
         subtitle = if (libraryCount == 0) {
@@ -216,21 +222,16 @@ private fun EmptyPrompt(libraryCount: Int) {
         } else {
             "Search across $libraryCount songs by title, artist, or album."
         },
+        recentSearches = recentSearches,
+        onRecentSearchTap = onRecentSearchTap,
     )
 }
 
 @Composable
-private fun NoResults(
-    query: String,
-    onImport: () -> Unit,
-) {
+private fun NoResults(query: String) {
     CenterState(
         title = "No matches",
         subtitle = "Nothing in your library matches \"$query\".",
-        actionLabel = "Download this song",
-        actionIcon = Icons.Filled.Download,
-        onAction = onImport,
-        secondaryText = "Search YouTube Music and import it into Pulse instead.",
     )
 }
 
@@ -238,10 +239,8 @@ private fun NoResults(
 private fun CenterState(
     title: String,
     subtitle: String,
-    actionLabel: String? = null,
-    actionIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    onAction: (() -> Unit)? = null,
-    secondaryText: String? = null,
+    recentSearches: List<String> = emptyList(),
+    onRecentSearchTap: ((String) -> Unit)? = null,
 ) {
     Box(modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp), contentAlignment = Alignment.Center) {
         Column(
@@ -254,19 +253,16 @@ private fun CenterState(
         ) {
             Text(text = title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.headlineMedium)
             Text(text = subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-            if (!secondaryText.isNullOrBlank()) {
+            if (recentSearches.isNotEmpty() && onRecentSearchTap != null) {
                 Text(
-                    text = secondaryText,
+                    text = "Recent searches",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center,
                 )
-            }
-            if (actionLabel != null && actionIcon != null && onAction != null) {
-                SearchImportButton(
-                    label = actionLabel,
-                    icon = actionIcon,
-                    onClick = onAction,
+                RecentSearchList(
+                    searches = recentSearches,
+                    onTap = onRecentSearchTap,
                 )
             }
         }
@@ -274,35 +270,38 @@ private fun CenterState(
 }
 
 @Composable
-private fun SearchImportButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
+private fun RecentSearchList(
+    searches: List<String>,
+    onTap: (String) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(22.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink),
-                ),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = PulseTheme.colors.onPrimary,
-            modifier = Modifier.size(18.dp),
-        )
-        Text(
-            text = label,
-            color = PulseTheme.colors.onPrimary,
-            style = MaterialTheme.typography.labelLarge,
-        )
+        searches.forEach { search ->
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(PulseTheme.colors.surfaceSoft)
+                    .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(20.dp))
+                    .clickable { onTap(search) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = PulseTheme.colors.accentViolet,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = search,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
 }
 

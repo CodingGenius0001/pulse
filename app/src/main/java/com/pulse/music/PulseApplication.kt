@@ -6,7 +6,6 @@ import com.pulse.music.data.MetadataRepository
 import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.PulseDatabase
 import com.pulse.music.data.UserPreferences
-import com.pulse.music.importer.SongImportManager
 import com.pulse.music.scanner.MusicScanner
 import com.pulse.music.update.UpdateRepository
 import kotlinx.coroutines.CoroutineScope
@@ -44,19 +43,10 @@ class PulseApplication : Application() {
     }
 
     val updateRepository: UpdateRepository by lazy { UpdateRepository(this) }
-    val songImportManager: SongImportManager by lazy {
-        SongImportManager(
-            context = this,
-            repository = repository,
-            metadataRepository = metadataRepository,
-            lyricsRepository = lyricsRepository,
-        )
-    }
 
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
-        SongImportManager.initializeExtractor()
         appScope.launch {
             updateRepository.syncBackgroundChecks()
         }

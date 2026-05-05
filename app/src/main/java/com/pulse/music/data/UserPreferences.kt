@@ -41,6 +41,7 @@ class UserPreferences(private val context: Context) {
     private val dismissedUpdatePromptBuildKey = intPreferencesKey("dismissed_update_prompt_build")
     private val lastLibraryScanAtKey = longPreferencesKey("last_library_scan_at")
     private val lastMetadataRefreshAtKey = longPreferencesKey("last_metadata_refresh_at")
+    private val recentLibrarySearchesKey = stringPreferencesKey("recent_library_searches")
 
     val theme: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         ThemePreference.fromValue(prefs[themeKey])
@@ -85,6 +86,15 @@ class UserPreferences(private val context: Context) {
 
     val lastMetadataRefreshAt: Flow<Long> = context.dataStore.data.map { prefs ->
         prefs[lastMetadataRefreshAtKey] ?: 0L
+    }
+
+    val recentLibrarySearches: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        prefs[recentLibrarySearchesKey]
+            .orEmpty()
+            .split(RECENT_SEARCH_SEPARATOR)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .take(MAX_RECENT_LIBRARY_SEARCHES)
     }
 
     suspend fun setTheme(theme: ThemePreference) {
@@ -138,7 +148,24 @@ class UserPreferences(private val context: Context) {
     suspend fun setLastMetadataRefreshAt(timestampMs: Long) {
         context.dataStore.edit { it[lastMetadataRefreshAtKey] = timestampMs }
     }
+
+    suspend fun addRecentLibrarySearch(query: String) {
+        val normalized = query.trim()
+        if (normalized.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val existing = prefs[recentLibrarySearchesKey]
+                .orEmpty()
+                .split(RECENT_SEARCH_SEPARATOR)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+            val updated = listOf(normalized) + existing.filterNot { it.equals(normalized, ignoreCase = true) }
+            prefs[recentLibrarySearchesKey] = updated.take(MAX_RECENT_LIBRARY_SEARCHES).joinToString(RECENT_SEARCH_SEPARATOR)
+        }
+    }
 }
+
+private const val RECENT_SEARCH_SEPARATOR = "\u001F"
+private const val MAX_RECENT_LIBRARY_SEARCHES = 5
 
 data class PendingUpdateInfo(
     val buildNumber: Int,
