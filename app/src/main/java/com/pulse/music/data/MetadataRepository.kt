@@ -76,51 +76,26 @@ class MetadataRepository(
         }
         val resolvedIdentityInput = fallbackInfo?.toMatchInput(effectiveInput) ?: effectiveInput
 
-        val primaryOutcome = MusicBrainzApi.searchRecordings(
-            title = resolvedIdentityInput.title,
-            artist = resolvedIdentityInput.artist,
-            album = resolvedIdentityInput.album,
-        )
-        val primaryCandidates = when (primaryOutcome) {
-            is MusicBrainzApi.SearchOutcome.Found -> primaryOutcome.candidates
-            MusicBrainzApi.SearchOutcome.NoMatch -> emptyList()
-            MusicBrainzApi.SearchOutcome.Unavailable -> emptyList()
+        val searchInputs = buildMetadataSearchInputs(resolvedIdentityInput, fallbackInfo)
+        val musicBrainzOutcomes = searchInputs.map { candidateInput ->
+            MusicBrainzApi.searchRecordings(
+                title = candidateInput.title,
+                artist = candidateInput.artist,
+                album = candidateInput.album,
+            )
         }
-
-        val retriedCandidates = buildList {
-            if (fallbackInfo != null && (
-                    primaryCandidates.isEmpty() ||
-                        fallbackInfo.hasUsefulArtistFor(effectiveInput) ||
-                        effectiveInput.album.isUnknownAlbum()
-                    )
-            ) {
-                when (
-                    val retried = MusicBrainzApi.searchRecordings(
-                        title = fallbackInfo.title,
-                        artist = fallbackInfo.artist.orEmpty(),
-                        album = fallbackInfo.album.orEmpty(),
-                    )
-                ) {
-                    is MusicBrainzApi.SearchOutcome.Found -> addAll(retried.candidates)
-                    else -> Unit
-                }
-            }
-            if (primaryCandidates.isEmpty() || resolvedIdentityInput.artist.isUnknownArtist()) {
-                when (
-                    val titleOnly = MusicBrainzApi.searchRecordings(
-                        title = resolvedIdentityInput.title,
-                        artist = "",
-                        album = resolvedIdentityInput.album,
-                    )
-                ) {
-                    is MusicBrainzApi.SearchOutcome.Found -> addAll(titleOnly.candidates)
-                    else -> Unit
-                }
+        val primaryOutcome = musicBrainzOutcomes.firstOrNull {
+            it is MusicBrainzApi.SearchOutcome.Found || it == MusicBrainzApi.SearchOutcome.Unavailable
+        } ?: MusicBrainzApi.SearchOutcome.NoMatch
+        val primaryCandidates = musicBrainzOutcomes.flatMap { outcome ->
+            when (outcome) {
+                is MusicBrainzApi.SearchOutcome.Found -> outcome.candidates
+                else -> emptyList()
             }
         }
 
         val bestMusicBrainzMatch = pickBestMusicBrainzMatch(
-            candidates = (primaryCandidates + retriedCandidates).distinctBy { it.recordingId },
+            candidates = primaryCandidates.distinctBy { it.recordingId },
             input = resolvedIdentityInput,
             durationMs = song.durationMs,
         )
@@ -277,31 +252,21 @@ class MetadataRepository(
         input: MatchInput,
         fallbackInfo: LrcLibApi.TrackInfo?,
     ): List<SearchHit> {
-        val primaryHits = when (
-            val outcome = GeniusApi.searchForMetadata(
-                title = input.title,
-                artist = input.artist,
-                album = input.album,
-            )
-        ) {
-            is GeniusSearchOutcome.Found -> outcome.hits
-            else -> emptyList()
-        }
-        if (primaryHits.isNotEmpty()) return primaryHits
-
-        if (fallbackInfo.hasUsefulArtistFor(input)) {
-            return when (
-                val retried = GeniusApi.searchForMetadata(
-                    title = input.title,
-                    artist = fallbackInfo?.artist.orEmpty(),
-                    album = fallbackInfo?.album.orEmpty().ifBlank { input.album },
+        val searchInputs = buildMetadataSearchInputs(input, fallbackInfo)
+        val collected = mutableListOf<SearchHit>()
+        for (candidateInput in searchInputs) {
+            when (
+                val outcome = GeniusApi.searchForMetadata(
+                    title = candidateInput.title,
+                    artist = candidateInput.artist,
+                    album = candidateInput.album,
                 )
             ) {
-                is GeniusSearchOutcome.Found -> retried.hits
-                else -> emptyList()
+                is GeniusSearchOutcome.Found -> collected += outcome.hits
+                else -> Unit
             }
         }
-        return emptyList()
+        return collected.distinctBy { "${it.id}|${it.title.cleanKey()}|${it.artist.cleanKey()}" }
     }
 
     private suspend fun pickBestMusicBrainzMatch(
@@ -786,13 +751,19 @@ class MetadataRepository(
         bestGeniusMatch: GeniusMatch?,
     ): String? {
         val artworkPairs = buildList {
-            add(input.artist to input.album)
-            add(
+            val artistAlbumSeeds = listOf(
+                input.artist to input.album,
                 (bestMusicBrainzMatch?.details?.artist ?: bestMusicBrainzMatch?.hit?.artist).orEmpty() to
                     bestMusicBrainzMatch?.details?.album.orEmpty(),
+                fallbackInfo?.artist.orEmpty() to fallbackInfo?.album.orEmpty(),
+                bestGeniusMatch?.details?.artist.orEmpty() to bestGeniusMatch?.details?.album.orEmpty(),
+                bestGeniusMatch?.hit?.artist.orEmpty() to input.title,
+                input.artist to input.title,
             )
-            add(fallbackInfo?.artist.orEmpty() to fallbackInfo?.album.orEmpty())
-            add(bestGeniusMatch?.details?.artist.orEmpty() to bestGeniusMatch?.details?.album.orEmpty())
+            artistAlbumSeeds.forEach { (artist, album) ->
+                LocalMetadataParser.artistVariants(artist).ifEmpty { listOf(artist) }
+                    .forEach { variant -> add(variant to album) }
+            }
         }
             .distinct()
 
@@ -806,6 +777,46 @@ class MetadataRepository(
 
         return bestGeniusMatch?.details?.artworkUrl
             ?: bestGeniusMatch?.hit?.artworkUrl
+    }
+
+    private fun buildMetadataSearchInputs(
+        input: MatchInput,
+        fallbackInfo: LrcLibApi.TrackInfo?,
+    ): List<MatchInput> {
+        val titleCandidates = listOf(
+            input.title,
+            fallbackInfo?.title.orEmpty(),
+        )
+            .map { LocalMetadataParser.cleanTitle(it, input.artist) }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.cleanKey() }
+
+        val artistCandidates = buildList {
+            addAll(LocalMetadataParser.artistVariants(input.artist))
+            addAll(LocalMetadataParser.artistVariants(fallbackInfo?.artist.orEmpty()))
+            if (input.artist.isNotBlank()) add(input.artist)
+            if (!fallbackInfo?.artist.isNullOrBlank()) add(fallbackInfo?.artist.orEmpty())
+            add("")
+        }
+            .distinctBy { it.cleanKey() }
+
+        val albumCandidates = listOf(
+            input.album,
+            fallbackInfo?.album.orEmpty(),
+            "",
+        )
+            .filter { it.isBlank() || it.isKnownAlbum() }
+            .distinctBy { it.cleanKey() }
+
+        return buildList {
+            titleCandidates.forEach { title ->
+                artistCandidates.forEach { artist ->
+                    albumCandidates.forEach { album ->
+                        add(MatchInput(title = title, artist = artist, album = album))
+                    }
+                }
+            }
+        }.distinct()
     }
 
     private fun LrcLibApi.TrackInfo.toMatchInput(fallbackInput: MatchInput): MatchInput =

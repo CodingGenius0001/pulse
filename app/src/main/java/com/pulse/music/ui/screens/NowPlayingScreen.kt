@@ -149,9 +149,7 @@ fun NowPlayingScreen(
         return
     }
 
-    val metadata by produceState<SongMetadata?>(initialValue = null, song.id) {
-        app.metadataRepository.observe(song.id).collect { value = it }
-    }
+    val metadata by app.metadataRepository.observe(song.id).collectAsStateWithLifecycle(initialValue = null)
     LaunchedEffect(song.id) {
         app.metadataRepository.resolve(song)
     }
@@ -508,8 +506,11 @@ fun NowPlayingScreen(
                             val message = when {
                                 !refreshedMetadata.artworkUrl.isNullOrBlank() ->
                                     "Matched the song and refreshed artwork${lyricsSuffix(refreshedLyrics)}."
+                                refreshedMetadata.resolvedTitle?.isNotBlank() == true &&
+                                    refreshedMetadata.resolvedArtist?.isNotBlank() == true ->
+                                    "Saved the correction and refreshed the song match${lyricsSuffix(refreshedLyrics)}. Artwork may appear later if providers have a cover."
                                 else ->
-                                    "Saved the correction, but Pulse still could not confirm artwork for that match${lyricsSuffix(refreshedLyrics)}."
+                                    "Saved the correction${lyricsSuffix(refreshedLyrics)}."
                             }
                             matchRefreshState = MatchRefreshState.Success(message)
                         } catch (_: java.util.concurrent.CancellationException) {
@@ -872,9 +873,10 @@ private fun WaveformScrubber(
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
-    val frameSeconds by produceState(initialValue = 0f) {
+    var frameSeconds by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
         while (true) {
-            withFrameNanos { value = it / 1_000_000_000f }
+            frameSeconds = withFrameNanos { it / 1_000_000_000f }
         }
     }
 

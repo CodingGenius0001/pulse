@@ -29,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,12 +108,10 @@ fun QueueScreen(
         }
 
         val currentSong = state.currentSong
-        val currentMetadata by produceState<SongMetadata?>(initialValue = null, currentSong?.id) {
-            if (currentSong == null) {
-                value = null
-            } else {
-                PulseApplication.get().metadataRepository.observe(currentSong.id).collect { value = it }
-            }
+        val currentMetadata by if (currentSong != null) {
+            PulseApplication.get().metadataRepository.observe(currentSong.id).collectAsStateWithLifecycle(initialValue = null)
+        } else {
+            androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<SongMetadata?>(null) }
         }
 
         LazyColumn(

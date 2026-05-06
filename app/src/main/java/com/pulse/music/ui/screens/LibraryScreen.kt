@@ -35,7 +35,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -294,9 +293,7 @@ fun LibraryScreen(
     }
 
     selectedPlaylist?.let { playlist ->
-        val playlistSongs by produceState<List<Song>>(initialValue = emptyList(), playlist.id) {
-            vm.observeSongsInPlaylist(playlist.id).collect { value = it }
-        }
+        val playlistSongs by vm.observeSongsInPlaylist(playlist.id).collectAsStateWithLifecycle(initialValue = emptyList())
         PlaylistDetailDialog(
             playlist = playlist,
             playlistSongs = playlistSongs,
@@ -471,11 +468,11 @@ private fun UserPlaylistRow(
     onPlay: () -> Unit,
     onEdit: () -> Unit,
 ) {
-    val thumbnailSongs by produceState<List<Song>>(initialValue = emptyList(), playlist.id) {
-        value = vm.getPlaylistThumbnailArt(playlist.id)
-    }
-    val songCount by produceState(initialValue = 0, playlist.id) {
-        value = vm.getPlaylistSongCount(playlist.id)
+    var thumbnailSongs by remember(playlist.id) { mutableStateOf<List<Song>>(emptyList()) }
+    var songCount by remember(playlist.id) { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(playlist.id) {
+        thumbnailSongs = vm.getPlaylistThumbnailArt(playlist.id)
+        songCount = vm.getPlaylistSongCount(playlist.id)
     }
 
     Row(

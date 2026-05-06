@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -25,6 +24,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
@@ -57,12 +57,10 @@ fun AlbumArt(
             return@Box
         }
 
-        val metadata by produceState<SongMetadata?>(initialValue = null, song.id) {
-            PulseApplication.get()
-                .metadataRepository
-                .observe(song.id)
-                .collect { value = it }
-        }
+        val metadata by PulseApplication.get()
+            .metadataRepository
+            .observe(song.id)
+            .collectAsStateWithLifecycle(initialValue = null)
         val remoteArtUrl = metadata?.artworkUrl?.takeIf(String::isNotBlank)
         val remoteIdentityResolved =
             !metadata?.resolvedTitle.isNullOrBlank() || !metadata?.resolvedArtist.isNullOrBlank()

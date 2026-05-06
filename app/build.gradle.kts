@@ -47,14 +47,14 @@ val debugKeystoreFile = file("keystore/debug.jks")
 
 android {
     namespace = "com.pulse.music"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.pulse.music"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 61
-        versionName = "0.6.1"
+        targetSdk = 35
+        versionCode = 62
+        versionName = "0.6.2"
 
         vectorDrawables {
             useSupportLibrary = true

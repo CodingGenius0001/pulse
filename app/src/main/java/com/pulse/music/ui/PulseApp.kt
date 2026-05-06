@@ -23,7 +23,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -82,18 +81,15 @@ fun PulseApp(
 
     val context = LocalContext.current
     val currentSong = playbackState.currentSong
-    val artworkUrl by produceState<String?>(initialValue = null, currentSong?.id) {
-        val song = currentSong
-        if (song == null) {
-            value = null
-        } else {
-            app.metadataRepository
-                .observe(song.id)
-                .collect { value = it?.artworkUrl?.takeIf(String::isNotBlank) }
-        }
+    val currentMetadata by if (currentSong != null) {
+        app.metadataRepository.observe(currentSong.id).collectAsStateWithLifecycle(initialValue = null)
+    } else {
+        remember { mutableStateOf(null) }
     }
-    val artworkColor by produceState<Color?>(initialValue = null, currentSong?.id, artworkUrl) {
-        value = currentSong?.let { ArtworkColorExtractor.dominantColor(context, it, artworkUrl) }
+    val artworkUrl = currentMetadata?.artworkUrl?.takeIf(String::isNotBlank)
+    var artworkColor by remember(currentSong?.id, artworkUrl) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(currentSong?.id, artworkUrl) {
+        artworkColor = currentSong?.let { ArtworkColorExtractor.dominantColor(context, it, artworkUrl) }
     }
     val backgroundTint by animateColorAsState(
         targetValue = artworkColor
@@ -106,8 +102,9 @@ fun PulseApp(
     var showQueue by remember { mutableStateOf(false) }
     var changelogDismissed by remember { mutableStateOf(false) }
     var showAppOpenUpdatePrompt by remember { mutableStateOf(false) }
-    val pendingChangelog by produceState<UpdateRepository.PendingChangelog?>(initialValue = null) {
-        value = app.updateRepository.pendingChangelogForCurrentInstall()
+    var pendingChangelog by remember { mutableStateOf<UpdateRepository.PendingChangelog?>(null) }
+    LaunchedEffect(Unit) {
+        pendingChangelog = app.updateRepository.pendingChangelogForCurrentInstall()
     }
     val dismissedUpdatePromptBuild by app.userPreferences.dismissedUpdatePromptBuild.collectAsStateWithLifecycle(initialValue = 0)
 
