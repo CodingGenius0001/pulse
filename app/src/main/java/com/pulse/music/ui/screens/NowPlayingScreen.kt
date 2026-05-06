@@ -1280,7 +1280,10 @@ private fun MatchCandidateRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOfNotNull(candidate.artist, candidate.album).joinToString(" - ").ifBlank { "Unknown album" },
+                text = listOfNotNull(
+                    candidate.artist?.takeIf { it.isNotBlank() },
+                    candidate.album?.takeIf { it.isNotBlank() },
+                ).joinToString(" - "),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2,

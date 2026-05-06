@@ -1,7 +1,12 @@
 package com.pulse.music.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.pm.PackageManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,7 +58,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.ThemePreference
@@ -81,6 +85,7 @@ fun SettingsScreen(
     val updateNotificationsEnabled by prefs.updateNotificationsEnabled.collectAsStateWithLifecycle(initialValue = true)
     val scope = rememberCoroutineScope()
     var showRenameDialog by remember { mutableStateOf(false) }
+    var folderFallbackPath by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
@@ -107,7 +112,10 @@ fun SettingsScreen(
                     title = "Source folder",
                     subtitle = folderState.displayPath,
                     leading = { SectionIcon(Icons.Filled.FolderOpen) },
-                    onClick = { openSourceFolder(context, folderState.fullPath) },
+                    onClick = {
+                        val ensuredFolder = vm.ensurePulseFolder()
+                        folderFallbackPath = openSourceFolder(context, ensuredFolder.fullPath)
+                    },
                     trailing = { Chevron() },
                 )
                 if (!folderState.exists) {
@@ -193,28 +201,139 @@ fun SettingsScreen(
             },
         )
     }
+
+    folderFallbackPath?.let { path ->
+        FolderOpenFallbackDialog(
+            path = path,
+            onDismiss = { folderFallbackPath = null },
+            onCopyPath = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Pulse folder path", path))
+                folderFallbackPath = null
+            },
+        )
+    }
 }
 
-private fun openSourceFolder(context: Context, path: String) {
+private fun openSourceFolder(context: Context, path: String): String? {
     val folder = File(path)
-    if (!folder.exists()) return
+    if (!folder.exists() && !folder.mkdirs()) return path
 
-    val authority = "${context.packageName}.fileprovider"
-    val folderUri = runCatching { FileProvider.getUriForFile(context, authority, folder) }.getOrNull() ?: return
-
-    val candidates = listOf(
-        Intent(Intent.ACTION_VIEW).setDataAndType(folderUri, DocumentsContract.Document.MIME_TYPE_DIR),
-        Intent(Intent.ACTION_VIEW).setDataAndType(folderUri, "resource/folder"),
-        Intent(Intent.ACTION_VIEW).setDataAndType(folderUri, "*/*"),
-    ).map { intent ->
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    val externalRoot = Environment.getExternalStorageDirectory().absolutePath
+    val relativePath = folder.absolutePath.removePrefix("$externalRoot/").removePrefix(externalRoot).trimStart('/')
+    val documentUri = if (relativePath.isNotBlank()) {
+        DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents",
+            "primary:$relativePath",
+        )
+    } else {
+        null
     }
 
-    val launchIntent = candidates.firstOrNull { candidate ->
-        candidate.resolveActivity(context.packageManager) != null
-    } ?: return
+    val candidates = buildList {
+        if (documentUri != null) {
+            add(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    ),
+            )
+            add(
+                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    .putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentUri)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        add(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(Uri.parse(folder.toURI().toString()), "resource/folder")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
 
-    context.startActivity(launchIntent)
+    val launchIntent = candidates.firstNotNullOfOrNull { candidate ->
+        val handler = resolveFolderHandler(context.packageManager, candidate) ?: return@firstNotNullOfOrNull null
+        candidate.setPackage(handler.activityInfo.packageName)
+    } ?: return path
+
+    return runCatching {
+        context.startActivity(launchIntent)
+        null
+    }.getOrElse { path }
+}
+
+private fun resolveFolderHandler(
+    packageManager: PackageManager,
+    intent: Intent,
+): android.content.pm.ResolveInfo? {
+    return packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        .firstOrNull { resolveInfo ->
+            val packageName = resolveInfo.activityInfo.packageName.lowercase()
+            packageName.contains("files") ||
+                packageName.contains("filemanager") ||
+                packageName.contains("documentsui") ||
+                packageName.contains("explorer") ||
+                packageName.contains("mixplorer") ||
+                packageName.contains("solid")
+        }
+        ?: packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            .firstOrNull { resolveInfo ->
+                val packageName = resolveInfo.activityInfo.packageName.lowercase()
+                !packageName.contains("chrome") &&
+                    !packageName.contains("browser") &&
+                    !packageName.contains("packageinstaller") &&
+                    !packageName.contains("permissioncontroller")
+            }
+}
+
+@Composable
+private fun FolderOpenFallbackDialog(
+    path: String,
+    onDismiss: () -> Unit,
+    onCopyPath: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Open Pulse folder",
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.titleLarge,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Pulse created the folder, but Android couldn't jump into it directly on this device.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = path,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Look for it in Internal storage > Music > PulseApp.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onCopyPath) {
+                Text("Copy path")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
 }
 
 @Composable

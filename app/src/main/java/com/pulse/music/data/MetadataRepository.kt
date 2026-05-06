@@ -150,6 +150,7 @@ class MetadataRepository(
             bestGeniusMatch = bestGeniusMatch,
         )
 
+        val localIdentityImproved = requestedInput.isMeaningfulImprovementOver(song)
         val resolvedRecord = when {
             bestMusicBrainzMatch != null -> {
                 val details = bestMusicBrainzMatch.details
@@ -214,8 +215,26 @@ class MetadataRepository(
                 )
             }
 
-            primaryOutcome == MusicBrainzApi.SearchOutcome.Unavailable -> SongMetadata(songId = song.id)
-            else -> SongMetadata(songId = song.id)
+            primaryOutcome == MusicBrainzApi.SearchOutcome.Unavailable -> SongMetadata(
+                songId = song.id,
+                resolvedTitle = requestedInput.title.takeIf { localIdentityImproved && it.isNotBlank() },
+                resolvedArtist = requestedInput.artist.takeIf { localIdentityImproved && it.isKnownArtist() },
+                resolvedAlbum = requestedInput.album.takeIf { localIdentityImproved && it.isKnownAlbum() },
+                overrideTitle = overrideToPersist?.title,
+                overrideArtist = overrideToPersist?.artist,
+                overrideAlbum = overrideToPersist?.album,
+                overrideAppliedAt = if (overrideToPersist != null) System.currentTimeMillis() else 0,
+            )
+            else -> SongMetadata(
+                songId = song.id,
+                resolvedTitle = requestedInput.title.takeIf { localIdentityImproved && it.isNotBlank() },
+                resolvedArtist = requestedInput.artist.takeIf { localIdentityImproved && it.isKnownArtist() },
+                resolvedAlbum = requestedInput.album.takeIf { localIdentityImproved && it.isKnownAlbum() },
+                overrideTitle = overrideToPersist?.title,
+                overrideArtist = overrideToPersist?.artist,
+                overrideAlbum = overrideToPersist?.album,
+                overrideAppliedAt = if (overrideToPersist != null) System.currentTimeMillis() else 0,
+            )
         }
 
         val finalRecord = resolvedRecord
@@ -699,14 +718,36 @@ class MetadataRepository(
     }
 
     private fun MatchInput.normalizedFor(song: Song): MatchInput =
-        MatchInput(
-            title = title.trim().ifBlank { song.title },
-            artist = artist.trim().ifBlank { song.artist },
-            album = album.trim().ifBlank { song.album },
-        )
+        LocalMetadataParser.normalizeSong(
+            rawTitle = title.trim().ifBlank { song.title },
+            rawArtist = LocalMetadataParser.cleanArtist(artist).ifBlank { song.artist },
+            rawAlbum = album.trim().ifBlank { song.album },
+            displayName = song.dataPath.substringAfterLast('/').substringAfterLast('\\'),
+        ).let { parsed ->
+            MatchInput(
+                title = parsed.title,
+                artist = parsed.artist,
+                album = parsed.album,
+            )
+        }
 
     private fun MatchInput.matches(song: Song): Boolean =
         title == song.title && artist == song.artist && album == song.album
+
+    private fun MatchInput.isMeaningfulImprovementOver(song: Song): Boolean {
+        val rawTitle = song.title.cleanKey()
+        val rawArtist = song.artist.cleanKey()
+        val rawAlbum = song.album.cleanKey()
+        return title.cleanKey() != rawTitle ||
+            (
+                artist.isKnownArtist() &&
+                    (song.artist.isUnknownArtist() || artist.cleanKey() != rawArtist)
+                ) ||
+            (
+                album.isKnownAlbum() &&
+                    (song.album.isUnknownAlbum() || album.cleanKey() != rawAlbum)
+                )
+    }
 
     private fun LrcLibApi.TrackInfo?.hasUsefulArtistFor(input: MatchInput): Boolean =
         this != null &&

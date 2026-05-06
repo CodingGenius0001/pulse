@@ -81,7 +81,13 @@ fun LibraryScreen(
     val likedSongs by vm.likedSongs.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
 
-    val albumsGrouped = remember(allSongs) { allSongs.groupBy { it.album }.entries.toList() }
+    val albumsGrouped = remember(allSongs) {
+        allSongs
+            .filter { it.album.isNotBlank() }
+            .groupBy { it.album }
+            .entries
+            .toList()
+    }
     val artistsGrouped = remember(allSongs) { allSongs.groupBy { it.artist }.entries.toList() }
 
     val scope = rememberCoroutineScope()

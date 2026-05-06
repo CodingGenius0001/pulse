@@ -129,27 +129,38 @@ class LyricsRepository(
     }
 
     private fun buildLookupRequests(song: Song, metadata: SongMetadata?): List<LookupRequest> {
-        val primary = LookupRequest(
-            title = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title,
-            artist = metadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: song.artist,
-            album = metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: song.album,
+        val titleCandidates = listOf(
+            metadata?.resolvedTitle,
+            LocalMetadataParser.cleanTitle(song.title, metadata?.resolvedArtist ?: song.artist),
+            song.title,
         )
-        val fallback = LookupRequest(
-            title = song.title,
-            artist = song.artist,
-            album = song.album,
-        )
-        val titleOnly = LookupRequest(
-            title = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title,
-            artist = "",
-            album = "",
-        )
-        val rawTitleOnly = LookupRequest(
-            title = song.title,
-            artist = "",
-            album = "",
-        )
-        return listOf(primary, fallback, titleOnly, rawTitleOnly)
+            .map { it.orEmpty().trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.cleanLookupKey() }
+
+        val artistCandidates = buildList {
+            addAll(LocalMetadataParser.artistVariants(metadata?.resolvedArtist.orEmpty()))
+            addAll(LocalMetadataParser.artistVariants(song.artist))
+        }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.cleanLookupKey() }
+
+        val albumCandidates = listOf(
+            LocalMetadataParser.cleanAlbum(metadata?.resolvedAlbum),
+            LocalMetadataParser.cleanAlbum(song.album),
+            "",
+        ).distinct()
+
+        return buildList {
+            titleCandidates.forEach { title ->
+                artistCandidates.forEach { artist ->
+                    albumCandidates.forEach { album ->
+                        add(LookupRequest(title = title, artist = artist, album = album))
+                    }
+                }
+                add(LookupRequest(title = title, artist = "", album = ""))
+            }
+        }
             .filter { it.title.isNotBlank() }
             .distinct()
     }
@@ -198,6 +209,12 @@ class LyricsRepository(
         !isNullOrBlank() &&
             !equals("Unknown album", ignoreCase = true) &&
             !equals("<unknown>", ignoreCase = true)
+
+    private fun String.cleanLookupKey(): String =
+        lowercase()
+            .replace(Regex("""[^\p{L}\p{N}& ]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
 
     private companion object {
         const val LYRICS_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000L

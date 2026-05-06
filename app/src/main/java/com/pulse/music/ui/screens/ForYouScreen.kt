@@ -229,7 +229,7 @@ private fun HeroCard(
                 style = MaterialTheme.typography.labelSmall,
             )
             Text(
-                text = hero?.album ?: "Your library",
+                text = hero?.album?.ifBlank { "Your library" } ?: "Your library",
                 color = Color.White,
                 style = MaterialTheme.typography.displayLarge,
                 maxLines = 2,

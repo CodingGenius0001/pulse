@@ -471,7 +471,9 @@ private fun SongPickerDialog(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = "${song.artist} - ${song.album}",
+                                    text = listOf(song.artist, song.album.takeIf { it.isNotBlank() })
+                                        .filterNotNull()
+                                        .joinToString(" - "),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,

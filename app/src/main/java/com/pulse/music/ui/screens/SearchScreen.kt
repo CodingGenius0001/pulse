@@ -330,7 +330,13 @@ private fun SongRow(song: Song, onClick: () -> Unit) {
         AlbumArt(song = song, cornerRadius = 12.dp, modifier = Modifier.size(50.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = song.title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(text = "${song.artist} - ${song.album}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = song.artistAndAlbumLabel(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -414,7 +420,9 @@ private fun filterLibrary(all: List<Song>, query: String): SearchResults {
             s.album.lowercase().contains(q)
     }
 
-    val matchingAlbumNames = all.map { it.album }.filter { it.lowercase().contains(q) }.distinct()
+    val matchingAlbumNames = all.map { it.album }
+        .filter { it.isNotBlank() && it.lowercase().contains(q) }
+        .distinct()
     val albumGroups = matchingAlbumNames.map { name -> name to all.filter { it.album == name } }.filter { it.second.isNotEmpty() }.take(10)
 
     val matchingArtistNames = all.map { it.artist }.filter { it.lowercase().contains(q) }.distinct()
@@ -426,3 +434,8 @@ private fun filterLibrary(all: List<Song>, query: String): SearchResults {
         artists = artistGroups,
     )
 }
+
+private fun Song.artistAndAlbumLabel(): String =
+    listOf(artist, album.takeIf { it.isNotBlank() })
+        .filterNotNull()
+        .joinToString(" - ")

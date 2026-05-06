@@ -103,6 +103,17 @@ class LibraryViewModel(
         }
     }
 
+    fun ensurePulseFolder(): FolderState {
+        repository.createPulseFolder()
+        val state = FolderState(
+            displayPath = repository.pulseFolderDisplayPath(),
+            fullPath = repository.pulseFolderPath(),
+            exists = repository.pulseFolderExists(),
+        )
+        _folderState.value = state
+        return state
+    }
+
     fun refreshAllMetadata() {
         launchLibraryEnrichment(force = true, userInitiated = true)
     }
