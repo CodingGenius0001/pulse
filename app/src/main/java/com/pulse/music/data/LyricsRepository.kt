@@ -2,6 +2,8 @@ package com.pulse.music.data
 
 import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.network.LrcLibApi
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Provides lyrics for a song. Found lyrics are cached in Room. Misses are
@@ -23,7 +25,8 @@ class LyricsRepository(
 
         var sawNetworkError = false
         var response: LrcLibApi.LrcLibResponse = LrcLibApi.LrcLibResponse.NotFound
-        for (request in requests) {
+        for (request in requests.take(MAX_LOOKUP_REQUESTS)) {
+            currentCoroutineContext().ensureActive()
             response = LrcLibApi.fetch(
                 trackName = request.title,
                 artistName = request.artist,
@@ -218,5 +221,6 @@ class LyricsRepository(
 
     private companion object {
         const val LYRICS_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000L
+        const val MAX_LOOKUP_REQUESTS = 10
     }
 }

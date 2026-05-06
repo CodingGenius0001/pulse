@@ -29,7 +29,7 @@ object LrcLibApi {
     )
 
     private const val BASE_URL = "https://lrclib.net/api"
-    private const val USER_AGENT = "Pulse-Android/0.6.2 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.6.3 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -185,7 +185,7 @@ object LrcLibApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext emptyList()
                 val body = response.body?.string() ?: return@withContext emptyList()
                 val candidates = json.decodeFromString(
@@ -246,7 +246,7 @@ object LrcLibApi {
             .build()
 
         return try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 when {
                     response.code == 404 -> LrcLibResponse.NotFound
                     !response.isSuccessful -> LrcLibResponse.Error
@@ -284,7 +284,7 @@ object LrcLibApi {
             .build()
 
         return try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 when {
                     response.code == 404 -> null
                     !response.isSuccessful -> null
@@ -397,7 +397,7 @@ object LrcLibApi {
         durationSeconds: Long,
     ): LrcLibResponse {
         return try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@use LrcLibResponse.Error
                 val body = response.body?.string() ?: return@use LrcLibResponse.Error
                 val candidates = json.decodeFromString(
@@ -421,7 +421,7 @@ object LrcLibApi {
         durationSeconds: Long,
     ): TrackInfo? {
         return try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@use null
                 val body = response.body?.string() ?: return@use null
                 val candidates = json.decodeFromString(

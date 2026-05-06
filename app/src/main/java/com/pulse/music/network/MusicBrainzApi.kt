@@ -36,7 +36,7 @@ object MusicBrainzApi {
     }
 
     private const val BASE_URL = "https://musicbrainz.org/ws/2"
-    private const val USER_AGENT = "Pulse-Android/0.6.2 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.6.3 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -76,7 +76,7 @@ object MusicBrainzApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext SearchOutcome.Unavailable
                 val body = response.body?.string() ?: return@withContext SearchOutcome.Unavailable
                 val parsed = json.decodeFromString(RecordingSearchResponse.serializer(), body)
@@ -114,7 +114,7 @@ object MusicBrainzApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(RecordingLookupResponse.serializer(), body)
@@ -169,7 +169,7 @@ object MusicBrainzApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 response.isSuccessful
             }
         } catch (_: Exception) {

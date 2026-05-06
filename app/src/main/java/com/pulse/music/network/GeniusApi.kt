@@ -68,7 +68,7 @@ object GeniusApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(SearchResponse.serializer(), body)
@@ -137,7 +137,7 @@ object GeniusApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext GeniusSearchOutcome.Unavailable
                 val body = response.body?.string() ?: return@withContext GeniusSearchOutcome.Unavailable
                 val parsed = json.decodeFromString(SearchResponse.serializer(), body)
@@ -191,7 +191,7 @@ object GeniusApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(SongResponse.serializer(), body)

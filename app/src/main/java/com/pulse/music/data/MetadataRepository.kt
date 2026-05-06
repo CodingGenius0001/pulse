@@ -7,6 +7,11 @@ import com.pulse.music.network.MusicBrainzApi
 import com.pulse.music.network.SearchHit
 import com.pulse.music.network.SongDetails
 import com.pulse.music.network.TheAudioDbApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlin.math.abs
 
@@ -41,7 +46,7 @@ class MetadataRepository(
         ),
         persistOverride: Boolean = false,
         force: Boolean = false,
-    ): SongMetadata {
+    ): SongMetadata = coroutineScope {
         val existing = metadataDao.get(song.id)
         val now = System.currentTimeMillis()
         val storedOverride = existing?.overrideInput()
@@ -58,32 +63,42 @@ class MetadataRepository(
         }
 
         if (!force && input.matches(song) && existing != null && !shouldRetry(song, existing, effectiveInput)) {
-            return existing
+            return@coroutineScope existing
         }
 
+        val candidateResolution = chooseBestInputCandidate(
+            song = song,
+            requestedInput = effectiveInput,
+            allowAmbiguity = overrideToPersist == null,
+        )
+        val chosenInput = candidateResolution.input
+
         val fallbackInfo = if (overrideToPersist == null) {
-            LrcLibApi.findBestTrackInfo(
-                trackName = effectiveInput.title,
-                artistName = effectiveInput.artist,
-                albumName = effectiveInput.album,
+            candidateResolution.fallbackInfo ?: LrcLibApi.findBestTrackInfo(
+                trackName = chosenInput.title,
+                artistName = chosenInput.artist,
+                albumName = chosenInput.album,
                 durationSeconds = song.durationMs / 1000,
             ) ?: searchLrcLibIdentity(
-                title = effectiveInput.title,
+                title = chosenInput.title,
                 durationSeconds = song.durationMs / 1000,
             )
         } else {
             null
         }
-        val resolvedIdentityInput = fallbackInfo?.toMatchInput(effectiveInput) ?: effectiveInput
+        val resolvedIdentityInput = fallbackInfo?.toMatchInput(chosenInput) ?: chosenInput
 
         val searchInputs = buildMetadataSearchInputs(resolvedIdentityInput, fallbackInfo)
+        currentCoroutineContext().ensureActive()
         val musicBrainzOutcomes = searchInputs.map { candidateInput ->
-            MusicBrainzApi.searchRecordings(
-                title = candidateInput.title,
-                artist = candidateInput.artist,
-                album = candidateInput.album,
-            )
-        }
+            async {
+                MusicBrainzApi.searchRecordings(
+                    title = candidateInput.title,
+                    artist = candidateInput.artist,
+                    album = candidateInput.album,
+                )
+            }
+        }.awaitAll()
         val primaryOutcome = musicBrainzOutcomes.firstOrNull {
             it is MusicBrainzApi.SearchOutcome.Found || it == MusicBrainzApi.SearchOutcome.Unavailable
         } ?: MusicBrainzApi.SearchOutcome.NoMatch
@@ -99,6 +114,7 @@ class MetadataRepository(
             input = resolvedIdentityInput,
             durationMs = song.durationMs,
         )
+        currentCoroutineContext().ensureActive()
         val bestGeniusMatch = if (
             bestMusicBrainzMatch == null ||
             bestMusicBrainzMatch.details?.artworkUrl.isNullOrBlank() ||
@@ -216,7 +232,7 @@ class MetadataRepository(
             .preserveUsefulExisting(existing)
             .withEnrichmentState(existing, now)
         metadataDao.upsert(finalRecord)
-        return finalRecord
+        return@coroutineScope finalRecord
     }
 
     suspend fun refresh(song: Song): SongMetadata {
@@ -251,30 +267,33 @@ class MetadataRepository(
     private suspend fun searchGeniusCandidates(
         input: MatchInput,
         fallbackInfo: LrcLibApi.TrackInfo?,
-    ): List<SearchHit> {
+    ): List<SearchHit> = coroutineScope {
         val searchInputs = buildMetadataSearchInputs(input, fallbackInfo)
-        val collected = mutableListOf<SearchHit>()
-        for (candidateInput in searchInputs) {
-            when (
-                val outcome = GeniusApi.searchForMetadata(
+        val outcomes = searchInputs.map { candidateInput ->
+            async {
+                GeniusApi.searchForMetadata(
                     title = candidateInput.title,
                     artist = candidateInput.artist,
                     album = candidateInput.album,
                 )
-            ) {
-                is GeniusSearchOutcome.Found -> collected += outcome.hits
-                else -> Unit
             }
-        }
-        return collected.distinctBy { "${it.id}|${it.title.cleanKey()}|${it.artist.cleanKey()}" }
+        }.awaitAll()
+        return@coroutineScope outcomes
+            .flatMap { outcome ->
+                when (outcome) {
+                    is GeniusSearchOutcome.Found -> outcome.hits
+                    else -> emptyList()
+                }
+            }
+            .distinctBy { "${it.id}|${it.title.cleanKey()}|${it.artist.cleanKey()}" }
     }
 
     private suspend fun pickBestMusicBrainzMatch(
         candidates: List<MusicBrainzApi.SearchCandidate>,
         input: MatchInput,
         durationMs: Long,
-    ): MusicBrainzMatch? {
-        if (candidates.isEmpty()) return null
+    ): MusicBrainzMatch? = coroutineScope {
+        if (candidates.isEmpty()) return@coroutineScope null
 
         val shortlist = candidates
             .map { hit -> hit to preliminaryScore(hit, input, durationMs) }
@@ -283,19 +302,22 @@ class MetadataRepository(
             .take(if (input.artist.isKnownArtist()) 4 else 8)
             .map { it.first }
 
-        if (shortlist.isEmpty()) return null
+        if (shortlist.isEmpty()) return@coroutineScope null
 
         val scored = shortlist.map { hit ->
-            val details = MusicBrainzApi.getRecordingDetails(hit.recordingId, preferredAlbum = input.album)
-            MusicBrainzMatch(
-                hit = hit,
-                details = details,
-                score = finalScore(hit, details, input, durationMs),
-            )
-        }
+            async {
+                currentCoroutineContext().ensureActive()
+                val details = MusicBrainzApi.getRecordingDetails(hit.recordingId, preferredAlbum = input.album)
+                MusicBrainzMatch(
+                    hit = hit,
+                    details = details,
+                    score = finalScore(hit, details, input, durationMs),
+                )
+            }
+        }.awaitAll()
 
         val minimumScore = minimumMusicBrainzAcceptScore(input)
-        return scored
+        return@coroutineScope scored
             .filter { it.score >= minimumScore }
             .maxByOrNull { it.score }
     }
@@ -303,8 +325,8 @@ class MetadataRepository(
     private suspend fun pickBestGeniusMatch(
         candidates: List<SearchHit>,
         input: MatchInput,
-    ): GeniusMatch? {
-        if (candidates.isEmpty()) return null
+    ): GeniusMatch? = coroutineScope {
+        if (candidates.isEmpty()) return@coroutineScope null
 
         val shortlist = candidates
             .map { hit -> hit to preliminaryScore(hit, input) }
@@ -313,19 +335,22 @@ class MetadataRepository(
             .take(5)
             .map { it.first }
 
-        if (shortlist.isEmpty()) return null
+        if (shortlist.isEmpty()) return@coroutineScope null
 
         val scored = shortlist.map { hit ->
-            val details = GeniusApi.getSong(hit.id)
-            GeniusMatch(
-                hit = hit,
-                details = details,
-                score = finalScore(hit, details, input),
-            )
-        }
+            async {
+                currentCoroutineContext().ensureActive()
+                val details = GeniusApi.getSong(hit.id)
+                GeniusMatch(
+                    hit = hit,
+                    details = details,
+                    score = finalScore(hit, details, input),
+                )
+            }
+        }.awaitAll()
 
         val minimumScore = minimumGeniusAcceptScore(input)
-        return scored
+        return@coroutineScope scored
             .filter { it.score >= minimumScore }
             .maxByOrNull { it.score }
     }
@@ -682,6 +707,39 @@ class MetadataRepository(
         )
     }
 
+    private suspend fun chooseBestInputCandidate(
+        song: Song,
+        requestedInput: MatchInput,
+        allowAmbiguity: Boolean,
+    ): CandidateResolution {
+        val candidates = if (allowAmbiguity) {
+            requestedInput.candidateInputsFor(song)
+        } else {
+            listOf(requestedInput)
+        }
+        if (candidates.size <= 1) return CandidateResolution(candidates.first(), null)
+
+        val durationSeconds = song.durationMs / 1000
+        var bestResolution = CandidateResolution(candidates.first(), null)
+        var bestScore = Int.MIN_VALUE
+        for (candidate in candidates.take(MAX_IDENTITY_CANDIDATES)) {
+            currentCoroutineContext().ensureActive()
+            val fallbackInfo = LrcLibApi.findBestTrackInfo(
+                trackName = candidate.title,
+                artistName = candidate.artist,
+                albumName = candidate.album,
+                durationSeconds = durationSeconds,
+            )
+            val score = candidate.scoreAgainstFallback(fallbackInfo)
+            if (score > bestScore) {
+                bestScore = score
+                bestResolution = CandidateResolution(candidate, fallbackInfo)
+            }
+            if (score >= STRONG_IDENTITY_SCORE) break
+        }
+        return bestResolution
+    }
+
     private fun MatchInput.normalizedFor(song: Song): MatchInput =
         LocalMetadataParser.normalizeSong(
             rawTitle = title.trim().ifBlank { song.title },
@@ -695,6 +753,32 @@ class MetadataRepository(
                 album = parsed.album,
             )
         }
+
+    private fun MatchInput.candidateInputsFor(song: Song): List<MatchInput> {
+        val normalizedTitle = title.trim().ifBlank { song.title }
+        val normalizedArtist = LocalMetadataParser.cleanArtist(artist).ifBlank { song.artist }
+        val displayName = song.dataPath.substringAfterLast('/').substringAfterLast('\\')
+        val rankedCandidates = LocalMetadataParser.rankedIdentityCandidates(
+            rawTitle = normalizedTitle,
+            rawArtist = normalizedArtist,
+            displayName = displayName,
+        )
+
+        return buildList {
+            add(this@candidateInputsFor)
+            rankedCandidates.forEach { candidate ->
+                add(
+                    MatchInput(
+                        title = candidate.title,
+                        artist = candidate.artist,
+                        album = album,
+                    )
+                )
+            }
+        }
+            .map { it.normalizedFor(song) }
+            .distinctBy { "${it.title.cleanKey()}|${it.artist.cleanKey()}|${it.album.cleanKey()}" }
+    }
 
     private fun MatchInput.matches(song: Song): Boolean =
         title == song.title && artist == song.artist && album == song.album
@@ -724,6 +808,7 @@ class MetadataRepository(
         title: String,
         durationSeconds: Long,
     ): LrcLibApi.TrackInfo? {
+        currentCoroutineContext().ensureActive()
         val candidates = LrcLibApi.searchCandidates(
             trackName = title,
             durationSeconds = durationSeconds,
@@ -750,6 +835,8 @@ class MetadataRepository(
         bestMusicBrainzMatch: MusicBrainzMatch?,
         bestGeniusMatch: GeniusMatch?,
     ): String? {
+        bestMusicBrainzMatch?.details?.artworkUrl?.takeIf { it.isNotBlank() }?.let { return it }
+
         val artworkPairs = buildList {
             val artistAlbumSeeds = listOf(
                 input.artist to input.album,
@@ -767,7 +854,7 @@ class MetadataRepository(
         }
             .distinct()
 
-        artworkPairs.forEach { (artist, album) ->
+        artworkPairs.take(MAX_ARTWORK_PAIRS).forEach { (artist, album) ->
             if (artist.isKnownArtist() && album.isKnownAlbum()) {
                 TheAudioDbApi.findAlbumArt(artist, album)
                     ?.takeIf { it.isNotBlank() }
@@ -816,7 +903,7 @@ class MetadataRepository(
                     }
                 }
             }
-        }.distinct()
+        }.distinct().take(MAX_SEARCH_INPUTS)
     }
 
     private fun LrcLibApi.TrackInfo.toMatchInput(fallbackInput: MatchInput): MatchInput =
@@ -861,6 +948,11 @@ class MetadataRepository(
         val score: Int,
     )
 
+    private data class CandidateResolution(
+        val input: MatchInput,
+        val fallbackInfo: LrcLibApi.TrackInfo?,
+    )
+
     private fun GeniusMatch.toMatchInput(fallbackInput: MatchInput): MatchInput = MatchInput(
         title = details?.title ?: hit.title.takeIf { it.isNotBlank() } ?: fallbackInput.title,
         artist = details?.artist ?: hit.artist ?: fallbackInput.artist,
@@ -878,5 +970,20 @@ class MetadataRepository(
 
     private companion object {
         const val ARTWORK_RETRY_WINDOW_MS = 30 * 60 * 1000L
+        const val MAX_SEARCH_INPUTS = 6
+        const val MAX_ARTWORK_PAIRS = 8
+        const val MAX_IDENTITY_CANDIDATES = 3
+        const val STRONG_IDENTITY_SCORE = 92
+    }
+
+    private fun MatchInput.scoreAgainstFallback(fallbackInfo: LrcLibApi.TrackInfo?): Int {
+        if (fallbackInfo == null) return 0
+        var score = 0
+        if (fallbackInfo.title.cleanKey() == title.cleanKey()) score += 44
+        if (artist.isKnownArtist() && fallbackInfo.artist.cleanKey() == artist.cleanKey()) score += 34
+        if (album.isKnownAlbum() && fallbackInfo.album.cleanKey() == album.cleanKey()) score += 16
+        if (fallbackInfo.artist.isKnownArtist() && artist.isUnknownArtist()) score += 18
+        if (fallbackInfo.plainLyrics?.isNotBlank() == true || fallbackInfo.syncedLyrics?.isNotBlank() == true) score += 8
+        return score
     }
 }

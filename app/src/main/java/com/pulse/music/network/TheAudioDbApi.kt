@@ -11,7 +11,7 @@ import okhttp3.Request
 object TheAudioDbApi {
 
     private const val BASE_URL = "https://www.theaudiodb.com/api/v1/json/123"
-    private const val USER_AGENT = "Pulse-Android/0.6.2 (github.com/CodingGenius0001/pulse)"
+    private const val USER_AGENT = "Pulse-Android/0.6.3 (github.com/CodingGenius0001/pulse)"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -32,7 +32,7 @@ object TheAudioDbApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(AlbumLookupResponse.serializer(), body)
@@ -63,7 +63,7 @@ object TheAudioDbApi {
             .build()
 
         try {
-            HttpClient.instance.newCall(request).execute().use { response ->
+            HttpClient.instance.newCall(request).await().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 val parsed = json.decodeFromString(AlbumLookupResponse.serializer(), body)
