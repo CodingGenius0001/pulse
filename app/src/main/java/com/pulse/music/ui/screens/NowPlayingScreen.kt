@@ -244,7 +244,10 @@ fun NowPlayingScreen(
                                 )
                             }
 
-                            SingleLineLyric(line = inlineLyric)
+                            SingleLineLyric(
+                                line = inlineLyric,
+                                onClick = { lyricsExpanded = true },
+                            )
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -470,7 +473,9 @@ fun NowPlayingScreen(
                 songTitle = displayTitle,
                 result = lyricsResult,
                 positionMs = state.positionMs,
+                durationMs = state.durationMs,
                 isPlaying = state.isPlaying,
+                waveSeed = song.id.toInt() xor displayTitle.hashCode(),
                 onPlayPause = { vm.playOrPause() },
                 onPrevious = { vm.previous() },
                 onNext = { vm.next() },
@@ -584,6 +589,7 @@ private fun shareSong(
 @Composable
 private fun SingleLineLyric(
     line: String?,
+    onClick: () -> Unit,
 ) {
     if (line == null) return
 
@@ -608,7 +614,11 @@ private fun SingleLineLyric(
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }
@@ -619,7 +629,9 @@ private fun LyricsFullScreen(
     songTitle: String,
     result: LyricsResult?,
     positionMs: Long,
+    durationMs: Long,
     isPlaying: Boolean,
+    waveSeed: Int,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -739,37 +751,49 @@ private fun LyricsFullScreen(
                     .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(26.dp))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    PillGroup {
-                        PillIconButton(onClick = onPrevious) {
+                    WaveformScrubber(
+                        waveSeed = waveSeed,
+                        isPlaying = isPlaying,
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        onSeek = onSeekTo,
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PillGroup {
+                            PillIconButton(onClick = onPrevious) {
+                                Icon(
+                                    imageVector = Icons.Filled.SkipPrevious,
+                                    contentDescription = "Previous track",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        }
+                        PlayPill(onClick = onPlayPause) {
                             Icon(
-                                imageVector = Icons.Filled.SkipPrevious,
-                                contentDescription = "Previous track",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(24.dp),
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = PulseTheme.colors.onPrimary,
+                                modifier = Modifier.size(28.dp),
                             )
                         }
-                    }
-                    PlayPill(onClick = onPlayPause) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = PulseTheme.colors.onPrimary,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                    PillGroup {
-                        PillIconButton(onClick = onNext) {
-                            Icon(
-                                imageVector = Icons.Filled.SkipNext,
-                                contentDescription = "Next track",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(24.dp),
-                            )
+                        PillGroup {
+                            PillIconButton(onClick = onNext) {
+                                Icon(
+                                    imageVector = Icons.Filled.SkipNext,
+                                    contentDescription = "Next track",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                 }
