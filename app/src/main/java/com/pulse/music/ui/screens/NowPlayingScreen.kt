@@ -126,6 +126,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.sin
 
 @Composable
@@ -884,9 +885,9 @@ private fun WaveformScrubber(
         val random = kotlin.random.Random(waveSeed)
         List(4) {
             WavePart(
-                cycles = random.nextDouble(2.2, 4.6).toFloat(),
-                amplitude = random.nextDouble(1.0, 1.85).toFloat(),
-                speed = random.nextDouble(0.18, 0.34).toFloat(),
+                wavelength = random.nextDouble(140.0, 280.0).toFloat(),
+                amplitude = random.nextDouble(0.55, 1.1).toFloat(),
+                speed = random.nextDouble(0.78, 1.18).toFloat(),
                 phase = random.nextDouble(0.0, PI * 2).toFloat(),
             )
         }
@@ -897,10 +898,17 @@ private fun WaveformScrubber(
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
-    var frameSeconds by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
+    var phaseOffsetPx by remember(waveSeed) { mutableFloatStateOf(0f) }
+    LaunchedEffect(waveSeed, isPlaying) {
+        var previousFrameNanos = 0L
         while (true) {
-            frameSeconds = withFrameNanos { it / 1_000_000_000f }
+            val frameNanos = withFrameNanos { it }
+            if (previousFrameNanos != 0L && isPlaying) {
+                val deltaSeconds = ((frameNanos - previousFrameNanos) / 1_000_000_000f).coerceAtMost(0.05f)
+                phaseOffsetPx += deltaSeconds * 52f
+                if (phaseOffsetPx > 100_000f) phaseOffsetPx -= 100_000f
+            }
+            previousFrameNanos = frameNanos
         }
     }
 
@@ -939,9 +947,8 @@ private fun WaveformScrubber(
                 val crestSpan = 196.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 11.8.dp.toPx() * amplitude
-                val step = 1.15f
-                val travel = frameSeconds * 9.4f
+                val maxAmp = 8.6.dp.toPx() * amplitude
+                val step = 1.4f
                 val path = Path()
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
@@ -958,19 +965,21 @@ private fun WaveformScrubber(
                         )
                     }
                 } else {
+                    val activeWidth = (activeWaveEnd - waveInset).coerceAtLeast(1f)
+
                     fun amplitudeAt(x: Float): Float {
-                        val distanceFromPill = abs(pillX - x)
-                        val nearPill = (1f - (distanceFromPill / crestSpan).coerceIn(0f, 1f))
-                        val crestBoost = 0.88f + 0.22f * sin(nearPill * PI.toFloat() / 2f)
-                        return crestBoost
+                        val progressToPill = ((x - waveInset) / activeWidth).coerceIn(0f, 1f)
+                        val nearPill = 1f - ((activeWaveEnd - x) / crestSpan).coerceIn(0f, 1f)
+                        val startEnvelope = 0.72f + 0.28f * sin(progressToPill * PI.toFloat() * 0.5f)
+                        val pillEnvelope = 0.25f + 0.75f * (nearPill.pow(1.6f))
+                        return startEnvelope * pillEnvelope
                     }
 
                     var x = waveInset
                     while (x <= activeWaveEnd) {
-                        val sourceX = (x * 0.92f) - travel
+                        val sourceX = x - phaseOffsetPx
                         val offset = waveParts.sumOf { part ->
-                            val wavelength = (98f / part.cycles).coerceAtLeast(28f)
-                            val angle = ((sourceX / wavelength) * 2f * PI.toFloat() * (0.82f + (part.speed * 0.48f))) + part.phase
+                            val angle = ((sourceX * part.speed) / part.wavelength) * 2f * PI.toFloat() + part.phase
                             (sin(angle) * part.amplitude).toDouble()
                         }.toFloat() / waveParts.size
                         val y = centerY + (offset * maxAmp * amplitudeAt(x))
@@ -1034,7 +1043,7 @@ private fun WaveformScrubber(
 }
 
 private data class WavePart(
-    val cycles: Float,
+    val wavelength: Float,
     val amplitude: Float,
     val speed: Float,
     val phase: Float,
