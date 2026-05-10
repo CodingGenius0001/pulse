@@ -125,8 +125,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.pow
+import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
@@ -881,32 +880,51 @@ private fun WaveformScrubber(
     val pillColor = PulseTheme.colors.accentCream
     val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f)
 
-    val waveParts = remember(waveSeed) {
+    val waveProfile = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        List(4) {
-            WavePart(
-                wavelength = random.nextDouble(140.0, 280.0).toFloat(),
-                amplitude = random.nextDouble(0.55, 1.1).toFloat(),
-                speed = random.nextDouble(0.78, 1.18).toFloat(),
-                phase = random.nextDouble(0.0, PI * 2).toFloat(),
-            )
-        }
+        val baseCycles = random.nextDouble(6.7, 8.9).toFloat()
+        WaveProfile(
+            baseCycles = baseCycles,
+            layers = listOf(
+                WavePart(
+                    cycleMultiplier = 1f,
+                    weight = 1f,
+                    spatialPhase = random.nextDouble(0.0, PI * 2).toFloat(),
+                    motionRate = random.nextDouble(0.22, 0.34).toFloat(),
+                    motionDepth = random.nextDouble(0.08, 0.14).toFloat(),
+                ),
+                WavePart(
+                    cycleMultiplier = random.nextDouble(1.85, 2.2).toFloat(),
+                    weight = random.nextDouble(0.22, 0.3).toFloat(),
+                    spatialPhase = random.nextDouble(0.0, PI * 2).toFloat(),
+                    motionRate = random.nextDouble(0.35, 0.48).toFloat(),
+                    motionDepth = random.nextDouble(0.1, 0.18).toFloat(),
+                ),
+                WavePart(
+                    cycleMultiplier = random.nextDouble(2.55, 3.15).toFloat(),
+                    weight = random.nextDouble(0.1, 0.16).toFloat(),
+                    spatialPhase = random.nextDouble(0.0, PI * 2).toFloat(),
+                    motionRate = random.nextDouble(0.5, 0.68).toFloat(),
+                    motionDepth = random.nextDouble(0.08, 0.14).toFloat(),
+                ),
+            ),
+        )
     }
 
-    val amplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0f,
+    val waveEnergy by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.86f,
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
-    var phaseOffsetPx by remember(waveSeed) { mutableFloatStateOf(0f) }
+    var motionPhase by remember(waveSeed) { mutableFloatStateOf(0f) }
     LaunchedEffect(waveSeed, isPlaying) {
         var previousFrameNanos = 0L
         while (true) {
             val frameNanos = withFrameNanos { it }
             if (previousFrameNanos != 0L && isPlaying) {
                 val deltaSeconds = ((frameNanos - previousFrameNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-                phaseOffsetPx += deltaSeconds * 52f
-                if (phaseOffsetPx > 100_000f) phaseOffsetPx -= 100_000f
+                motionPhase += deltaSeconds * (PI.toFloat() * 0.95f)
+                if (motionPhase > PI.toFloat() * 200f) motionPhase -= PI.toFloat() * 200f
             }
             previousFrameNanos = frameNanos
         }
@@ -944,45 +962,48 @@ private fun WaveformScrubber(
                 val pillWidth = 10.dp.toPx()
                 val pillHeight = 34.dp.toPx()
                 val tailPadding = 4.dp.toPx()
-                val crestSpan = 196.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 8.6.dp.toPx() * amplitude
-                val step = 1.4f
+                val maxAmp = 11.4.dp.toPx() * waveEnergy
+                val step = 1.15f
                 val path = Path()
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
+                val activeWidth = (activeWaveEnd - waveInset).coerceAtLeast(1f)
 
-                if (!isPlaying) {
-                    if (activeWaveEnd > waveInset) {
-                        drawLine(
-                            color = waveColor,
-                            start = Offset(waveInset, centerY),
-                            end = Offset(activeWaveEnd, centerY),
-                            strokeWidth = 3.3.dp.toPx(),
-                            cap = StrokeCap.Round,
-                        )
+                if (activeWaveEnd > waveInset) {
+                    val startBlendWidth = 14.dp.toPx()
+                    val pillBlendWidth = 18.dp.toPx()
+
+                    fun centerBlend(distance: Float, widthPx: Float): Float {
+                        val normalized = (distance / widthPx).coerceIn(0f, 1f)
+                        return normalized * normalized * (3f - 2f * normalized)
                     }
-                } else {
-                    val activeWidth = (activeWaveEnd - waveInset).coerceAtLeast(1f)
 
-                    fun amplitudeAt(x: Float): Float {
-                        val progressToPill = ((x - waveInset) / activeWidth).coerceIn(0f, 1f)
-                        val nearPill = 1f - ((activeWaveEnd - x) / crestSpan).coerceIn(0f, 1f)
-                        val startEnvelope = 0.72f + 0.28f * sin(progressToPill * PI.toFloat() * 0.5f)
-                        val pillEnvelope = 0.25f + 0.75f * (nearPill.pow(1.6f))
-                        return startEnvelope * pillEnvelope
+                    fun waveformValue(x: Float): Float {
+                        val domain = (x - activeWaveEnd) / activeWidth
+                        val blended = waveProfile.layers.sumOf { layer ->
+                            val wobble = sin(motionPhase * layer.motionRate + layer.spatialPhase) * layer.motionDepth
+                            val angle =
+                                (waveProfile.baseCycles * layer.cycleMultiplier * domain * 2f * PI.toFloat()) +
+                                    layer.spatialPhase +
+                                    wobble
+                            (sin(angle) * layer.weight).toDouble()
+                        }.toFloat() / waveProfile.weightSum
+
+                        val contour =
+                            0.88f +
+                                0.12f * cos((((x - waveInset) / activeWidth).coerceIn(0f, 1f) - 0.5f) * PI.toFloat())
+                        val startBlend = centerBlend(x - waveInset, startBlendWidth)
+                        val pillBlend = centerBlend(activeWaveEnd - x, pillBlendWidth)
+                        val edgeBlend = startBlend * pillBlend
+                        return blended * contour * edgeBlend
                     }
 
                     var x = waveInset
                     while (x <= activeWaveEnd) {
-                        val sourceX = x - phaseOffsetPx
-                        val offset = waveParts.sumOf { part ->
-                            val angle = ((sourceX * part.speed) / part.wavelength) * 2f * PI.toFloat() + part.phase
-                            (sin(angle) * part.amplitude).toDouble()
-                        }.toFloat() / waveParts.size
-                        val y = centerY + (offset * maxAmp * amplitudeAt(x))
+                        val y = centerY + (waveformValue(x) * maxAmp)
                         if (!hasPoint) {
                             path.moveTo(x, y)
                             hasPoint = true
@@ -992,17 +1013,18 @@ private fun WaveformScrubber(
                         x += step
                     }
 
-                    if (hasPoint) {
-                        drawPath(
-                            path = path,
-                            color = waveColor,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 3.3.dp.toPx(),
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round,
-                            ),
-                        )
-                    }
+                }
+
+                if (hasPoint) {
+                    drawPath(
+                        path = path,
+                        color = waveColor,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 3.3.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
                 }
 
                 if (inactiveTrackStart < width - waveInset) {
@@ -1043,11 +1065,19 @@ private fun WaveformScrubber(
 }
 
 private data class WavePart(
-    val wavelength: Float,
-    val amplitude: Float,
-    val speed: Float,
-    val phase: Float,
+    val cycleMultiplier: Float,
+    val weight: Float,
+    val spatialPhase: Float,
+    val motionRate: Float,
+    val motionDepth: Float,
 )
+
+private data class WaveProfile(
+    val baseCycles: Float,
+    val layers: List<WavePart>,
+) {
+    val weightSum: Float = layers.sumOf { it.weight.toDouble() }.toFloat().coerceAtLeast(0.001f)
+}
 
 @Composable
 private fun BottomAction(
