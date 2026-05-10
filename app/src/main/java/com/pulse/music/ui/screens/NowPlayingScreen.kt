@@ -882,9 +882,9 @@ private fun WaveformScrubber(
 
     val waveProfile = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        val baseCycles = random.nextDouble(6.7, 8.9).toFloat()
+        val baseWavelengthPx = random.nextDouble(34.0, 42.0).toFloat()
         WaveProfile(
-            baseCycles = baseCycles,
+            baseWavelengthPx = baseWavelengthPx,
             layers = listOf(
                 WavePart(
                     cycleMultiplier = 1f,
@@ -970,11 +970,11 @@ private fun WaveformScrubber(
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
-                val activeWidth = (activeWaveEnd - waveInset).coerceAtLeast(1f)
 
                 if (activeWaveEnd > waveInset) {
                     val startBlendWidth = 14.dp.toPx()
                     val pillBlendWidth = 18.dp.toPx()
+                    val activeWidth = (activeWaveEnd - waveInset).coerceAtLeast(1f)
 
                     fun centerBlend(distance: Float, widthPx: Float): Float {
                         val normalized = (distance / widthPx).coerceIn(0f, 1f)
@@ -982,11 +982,14 @@ private fun WaveformScrubber(
                     }
 
                     fun waveformValue(x: Float): Float {
-                        val domain = (x - activeWaveEnd) / activeWidth
+                        val distanceFromPill = x - activeWaveEnd
                         val blended = waveProfile.layers.sumOf { layer ->
                             val wobble = sin(motionPhase * layer.motionRate + layer.spatialPhase) * layer.motionDepth
                             val angle =
-                                (waveProfile.baseCycles * layer.cycleMultiplier * domain * 2f * PI.toFloat()) +
+                                (
+                                    distanceFromPill /
+                                        (waveProfile.baseWavelengthPx / layer.cycleMultiplier)
+                                    ) * 2f * PI.toFloat() +
                                     layer.spatialPhase +
                                     wobble
                             (sin(angle) * layer.weight).toDouble()
@@ -1073,7 +1076,7 @@ private data class WavePart(
 )
 
 private data class WaveProfile(
-    val baseCycles: Float,
+    val baseWavelengthPx: Float,
     val layers: List<WavePart>,
 ) {
     val weightSum: Float = layers.sumOf { it.weight.toDouble() }.toFloat().coerceAtLeast(0.001f)
