@@ -946,7 +946,7 @@ private fun WaveformScrubber(
                 val tailPadding = 4.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 12.92.dp.toPx() * waveAmplitude
+                val maxAmp = 11.628.dp.toPx() * waveAmplitude
                 val step = 1.15f
                 val strokePath = Path()
                 var hasPoint = false
