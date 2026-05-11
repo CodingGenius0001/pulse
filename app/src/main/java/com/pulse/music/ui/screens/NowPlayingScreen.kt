@@ -877,20 +877,19 @@ private fun WaveformScrubber(
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
     val waveColor = PulseTheme.colors.accentViolet
-    val waveFillColor = PulseTheme.colors.accentViolet.copy(alpha = 0.22f)
+    val waveFillColor = PulseTheme.colors.accentViolet.copy(alpha = 0.18f)
     val pillColor = PulseTheme.colors.accentCream
     val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f)
 
-    val waveProfile = remember(waveSeed) {
-        val random = kotlin.random.Random(waveSeed)
+    val waveProfile = remember {
         WaveProfile(
-            primaryWavelengthPx = random.nextDouble(56.0, 66.0).toFloat(),
-            primaryAmplitude = random.nextDouble(0.96, 1.08).toFloat(),
-            secondaryWavelengthMultiplier = random.nextDouble(2.35, 2.9).toFloat(),
-            secondaryAmplitude = random.nextDouble(0.42, 0.54).toFloat(),
-            primaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
-            secondaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
-            travelSpeedPxPerSecond = random.nextDouble(26.0, 34.0).toFloat(),
+            primaryWavelengthPx = 78f,
+            primaryAmplitude = 0.88f,
+            secondaryWavelengthMultiplier = 1.92f,
+            secondaryAmplitude = 0.36f,
+            primaryPhase = PI.toFloat() * 0.18f,
+            secondaryPhase = PI.toFloat() * 0.82f,
+            travelSpeedPxPerSecond = 22f,
         )
     }
 
@@ -949,7 +948,7 @@ private fun WaveformScrubber(
                 val tailPadding = 4.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 11.8.dp.toPx() * waveAmplitude
+                val maxAmp = 10.2.dp.toPx() * waveAmplitude
                 val step = 1.15f
                 val strokePath = Path()
                 val fillPath = Path()
@@ -979,7 +978,7 @@ private fun WaveformScrubber(
                                     2f * PI.toFloat() +
                                     waveProfile.secondaryPhase,
                             ) * waveProfile.secondaryAmplitude
-                        val crest = max(0f, primary + secondary)
+                        val crest = max(0f, (primary * 0.84f) + secondary)
                         val startBlend = centerBlend(x - waveInset, startBlendWidth)
                         val pillBlend = centerBlend(activeWaveEnd - x, pillBlendWidth)
                         return crest * startBlend * pillBlend
