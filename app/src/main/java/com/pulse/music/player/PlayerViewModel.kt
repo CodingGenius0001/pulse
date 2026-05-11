@@ -2,6 +2,7 @@ package com.pulse.music.player
 
 import android.content.ComponentName
 import android.content.Context
+import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,12 +14,16 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.MoreExecutors
 import com.pulse.music.PulseApplication
+import com.pulse.music.data.MetadataRepository
 import com.pulse.music.data.MusicRepository
 import com.pulse.music.data.Song
+import com.pulse.music.data.SongMetadata
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
@@ -44,6 +49,7 @@ data class PlaybackState(
 class PlayerViewModel(
     application: android.app.Application,
     private val repository: MusicRepository,
+    private val metadataRepository: MetadataRepository,
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(PlaybackState())
@@ -51,6 +57,7 @@ class PlayerViewModel(
 
     private var controller: MediaController? = null
     private var currentQueue: List<Song> = emptyList()
+    private val metadataObserverJobs = mutableMapOf<Long, Job>()
 
     /** Track position updates so the progress bar ticks in real time. */
     private var positionTickerRunning = false
@@ -141,6 +148,7 @@ class PlayerViewModel(
         val deduped = songs.distinctBy { it.id }
         val adjustedStart = startIndex.coerceIn(0, (deduped.size - 1).coerceAtLeast(0))
         currentQueue = deduped
+        syncMetadataObservers(deduped)
         val items = deduped.map { it.toMediaItem() }
         c.setMediaItems(items, adjustedStart, 0L)
         c.prepare()
@@ -225,8 +233,12 @@ class PlayerViewModel(
         if (index == c.currentMediaItemIndex) return
         if (index !in 0 until c.mediaItemCount) return
         c.removeMediaItem(index)
+        val removedSong = currentQueue.getOrNull(index)
         val reordered = currentQueue.toMutableList().apply { removeAt(index) }
         currentQueue = reordered
+        if (removedSong != null) {
+            syncMetadataObservers(reordered)
+        }
         _state.value = _state.value.copy(
             queue = reordered,
             currentIndex = c.currentMediaItemIndex,
@@ -262,9 +274,40 @@ class PlayerViewModel(
 
     override fun onCleared() {
         positionTickerRunning = false
+        metadataObserverJobs.values.forEach { it.cancel() }
+        metadataObserverJobs.clear()
         controller?.release()
         controller = null
         super.onCleared()
+    }
+
+    private fun syncMetadataObservers(queue: List<Song>) {
+        val activeIds = queue.map { it.id }.toSet()
+        metadataObserverJobs.entries.removeAll { (songId, job) ->
+            val shouldRemove = songId !in activeIds
+            if (shouldRemove) job.cancel()
+            shouldRemove
+        }
+        queue.forEach { song ->
+            if (metadataObserverJobs.containsKey(song.id)) return@forEach
+            metadataObserverJobs[song.id] = viewModelScope.launch {
+                metadataRepository.observe(song.id).collectLatest { metadata ->
+                    updateMediaItemMetadata(song.id, metadata)
+                }
+            }
+        }
+    }
+
+    private fun updateMediaItemMetadata(songId: Long, metadata: SongMetadata?) {
+        val c = controller ?: return
+        val index = currentQueue.indexOfFirst { it.id == songId }
+        if (index !in currentQueue.indices || index >= c.mediaItemCount) return
+
+        val updatedSong = currentQueue[index]
+        val replacement = updatedSong.toMediaItem(metadata)
+        val currentItem = c.getMediaItemAt(index)
+        if (currentItem.hasEquivalentDisplayMetadata(replacement)) return
+        c.replaceMediaItem(index, replacement)
     }
 
     companion object {
@@ -274,22 +317,33 @@ class PlayerViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val app = PulseApplication.get()
-                return PlayerViewModel(app, app.repository) as T
+                return PlayerViewModel(app, app.repository, app.metadataRepository) as T
             }
         }
     }
 }
 
 /** Convert a Song into a Media3 MediaItem so it can be queued. */
-private fun Song.toMediaItem(): MediaItem = MediaItem.Builder()
+private fun Song.toMediaItem(metadata: SongMetadata? = null): MediaItem = MediaItem.Builder()
     .setUri(contentUri)
     .setMediaId(id.toString())
     .setMediaMetadata(
         MediaMetadata.Builder()
-            .setTitle(title)
-            .setArtist(artist)
-            .setAlbumTitle(album)
-            .setArtworkUri(albumArtUri)
+            .setTitle(metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: title)
+            .setArtist(metadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: artist)
+            .setAlbumTitle(metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: album)
+            .setArtworkUri(metadata?.artworkUrl?.takeIf(String::isNotBlank)?.toUri() ?: albumArtUri)
             .build()
     )
     .build()
+
+private fun MediaItem.hasEquivalentDisplayMetadata(other: MediaItem): Boolean {
+    val currentMetadata = mediaMetadata
+    val nextMetadata = other.mediaMetadata
+    return localConfiguration?.uri == other.localConfiguration?.uri &&
+        mediaId == other.mediaId &&
+        currentMetadata.title == nextMetadata.title &&
+        currentMetadata.artist == nextMetadata.artist &&
+        currentMetadata.albumTitle == nextMetadata.albumTitle &&
+        currentMetadata.artworkUri == nextMetadata.artworkUri
+}
