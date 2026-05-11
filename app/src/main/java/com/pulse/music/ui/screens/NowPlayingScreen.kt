@@ -124,7 +124,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.exp
+import kotlin.math.PI
+import kotlin.math.max
+import kotlin.math.sin
 
 @Composable
 fun NowPlayingScreen(
@@ -875,24 +877,25 @@ private fun WaveformScrubber(
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
     val waveColor = PulseTheme.colors.accentViolet
+    val waveFillColor = PulseTheme.colors.accentViolet.copy(alpha = 0.22f)
     val pillColor = PulseTheme.colors.accentCream
     val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f)
 
     val waveProfile = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
         WaveProfile(
-            primaryWidthPx = random.nextDouble(44.0, 58.0).toFloat(),
-            primaryHeight = random.nextDouble(0.82, 0.98).toFloat(),
-            secondaryWidthPx = random.nextDouble(28.0, 38.0).toFloat(),
-            secondaryHeight = random.nextDouble(0.2, 0.32).toFloat(),
-            lobeGapPx = random.nextDouble(18.0, 28.0).toFloat(),
-            baseOffsetPx = random.nextDouble(30.0, 56.0).toFloat(),
+            primaryWavelengthPx = random.nextDouble(38.0, 44.0).toFloat(),
+            primaryAmplitude = random.nextDouble(0.82, 0.92).toFloat(),
+            secondaryWavelengthMultiplier = random.nextDouble(1.7, 2.2).toFloat(),
+            secondaryAmplitude = random.nextDouble(0.34, 0.44).toFloat(),
+            primaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
+            secondaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
             travelSpeedPxPerSecond = random.nextDouble(26.0, 34.0).toFloat(),
         )
     }
 
-    val ridgeAmplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.96f,
+    val waveAmplitude by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.97f,
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
@@ -946,71 +949,70 @@ private fun WaveformScrubber(
                 val tailPadding = 4.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 5.8.dp.toPx() * ridgeAmplitude
-                val step = 1.1f
-                val path = Path()
+                val maxAmp = 8.8.dp.toPx() * waveAmplitude
+                val step = 1.15f
+                val strokePath = Path()
+                val fillPath = Path()
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
 
                 if (activeWaveEnd > waveInset) {
-                    val startBlendWidth = 18.dp.toPx()
-                    val pillBlendWidth = 20.dp.toPx()
-                    val cycleLengthPx =
-                        waveProfile.baseOffsetPx + waveProfile.primaryWidthPx + waveProfile.secondaryWidthPx + waveProfile.lobeGapPx
-                    val cycleProgress = travelOffsetPx % cycleLengthPx
-                    val primaryCenter = activeWaveEnd - waveProfile.baseOffsetPx + cycleProgress
-                    val secondaryCenter = primaryCenter - waveProfile.lobeGapPx
-                    val wrappedPrimaryCenter =
-                        if (primaryCenter > activeWaveEnd + waveProfile.primaryWidthPx) {
-                            primaryCenter - cycleLengthPx
-                        } else {
-                            primaryCenter
-                        }
-                    val wrappedSecondaryCenter =
-                        if (secondaryCenter > activeWaveEnd + waveProfile.secondaryWidthPx) {
-                            secondaryCenter - cycleLengthPx
-                        } else {
-                            secondaryCenter
-                        }
+                    val startBlendWidth = 12.dp.toPx()
+                    val pillBlendWidth = 16.dp.toPx()
 
                     fun centerBlend(distance: Float, widthPx: Float): Float {
                         val normalized = (distance / widthPx).coerceIn(0f, 1f)
                         return normalized * normalized * (3f - 2f * normalized)
                     }
 
-                    fun lobe(distance: Float, widthPx: Float, height: Float): Float {
-                        val normalized = distance / widthPx
-                        return (exp(-(normalized * normalized) * 1.6f) * height.toDouble()).toFloat()
-                    }
-
-                    fun ridgeValue(x: Float): Float {
-                        val primaryRise =
-                            lobe(x - wrappedPrimaryCenter, waveProfile.primaryWidthPx, waveProfile.primaryHeight)
-                        val secondaryRise =
-                            lobe(x - wrappedSecondaryCenter, waveProfile.secondaryWidthPx, waveProfile.secondaryHeight)
+                    fun compositeHeight(x: Float): Float {
+                        val traveledX = x - travelOffsetPx
+                        val primary =
+                            sin(
+                                (traveledX / waveProfile.primaryWavelengthPx) * 2f * PI.toFloat() +
+                                    waveProfile.primaryPhase,
+                            ) * waveProfile.primaryAmplitude
+                        val secondary =
+                            sin(
+                                (traveledX / (waveProfile.primaryWavelengthPx * waveProfile.secondaryWavelengthMultiplier)) *
+                                    2f * PI.toFloat() +
+                                    waveProfile.secondaryPhase,
+                            ) * waveProfile.secondaryAmplitude
+                        val crest = max(0f, primary + secondary)
                         val startBlend = centerBlend(x - waveInset, startBlendWidth)
                         val pillBlend = centerBlend(activeWaveEnd - x, pillBlendWidth)
-                        return (primaryRise + secondaryRise) * startBlend * pillBlend
+                        return crest * startBlend * pillBlend
                     }
 
                     var x = waveInset
+                    fillPath.moveTo(waveInset, centerY)
                     while (x <= activeWaveEnd) {
-                        val y = centerY - (ridgeValue(x) * maxAmp)
+                        val y = centerY - (compositeHeight(x) * maxAmp)
                         if (!hasPoint) {
-                            path.moveTo(x, y)
+                            strokePath.moveTo(x, y)
+                            fillPath.lineTo(x, y)
                             hasPoint = true
                         } else {
-                            path.lineTo(x, y)
+                            strokePath.lineTo(x, y)
+                            fillPath.lineTo(x, y)
                         }
                         x += step
+                    }
+                    if (hasPoint) {
+                        fillPath.lineTo(activeWaveEnd, centerY)
+                        fillPath.close()
                     }
 
                 }
 
                 if (hasPoint) {
                     drawPath(
-                        path = path,
+                        path = fillPath,
+                        color = waveFillColor,
+                    )
+                    drawPath(
+                        path = strokePath,
                         color = waveColor,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(
                             width = 3.3.dp.toPx(),
@@ -1058,12 +1060,12 @@ private fun WaveformScrubber(
 }
 
 private data class WaveProfile(
-    val primaryWidthPx: Float,
-    val primaryHeight: Float,
-    val secondaryWidthPx: Float,
-    val secondaryHeight: Float,
-    val lobeGapPx: Float,
-    val baseOffsetPx: Float,
+    val primaryWavelengthPx: Float,
+    val primaryAmplitude: Float,
+    val secondaryWavelengthMultiplier: Float,
+    val secondaryAmplitude: Float,
+    val primaryPhase: Float,
+    val secondaryPhase: Float,
     val travelSpeedPxPerSecond: Float,
 )
 
