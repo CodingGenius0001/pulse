@@ -125,7 +125,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
@@ -882,49 +881,30 @@ private fun WaveformScrubber(
 
     val waveProfile = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        val baseWavelengthPx = random.nextDouble(34.0, 42.0).toFloat()
+        val baseWavelengthPx = random.nextDouble(36.0, 41.0).toFloat()
         WaveProfile(
             baseWavelengthPx = baseWavelengthPx,
-            layers = listOf(
-                WavePart(
-                    cycleMultiplier = 1f,
-                    weight = 1f,
-                    spatialPhase = random.nextDouble(0.0, PI * 2).toFloat(),
-                    motionRate = random.nextDouble(0.22, 0.34).toFloat(),
-                    motionDepth = random.nextDouble(0.08, 0.14).toFloat(),
-                ),
-                WavePart(
-                    cycleMultiplier = random.nextDouble(1.85, 2.2).toFloat(),
-                    weight = random.nextDouble(0.22, 0.3).toFloat(),
-                    spatialPhase = random.nextDouble(0.0, PI * 2).toFloat(),
-                    motionRate = random.nextDouble(0.35, 0.48).toFloat(),
-                    motionDepth = random.nextDouble(0.1, 0.18).toFloat(),
-                ),
-                WavePart(
-                    cycleMultiplier = random.nextDouble(2.55, 3.15).toFloat(),
-                    weight = random.nextDouble(0.1, 0.16).toFloat(),
-                    spatialPhase = random.nextDouble(0.0, PI * 2).toFloat(),
-                    motionRate = random.nextDouble(0.5, 0.68).toFloat(),
-                    motionDepth = random.nextDouble(0.08, 0.14).toFloat(),
-                ),
-            ),
+            primaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
+            secondaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
         )
     }
 
-    val waveEnergy by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.86f,
+    val waveAmplitude by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.94f,
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
-    var motionPhase by remember(waveSeed) { mutableFloatStateOf(0f) }
+    var travelOffsetPx by remember(waveSeed) { mutableFloatStateOf(0f) }
     LaunchedEffect(waveSeed, isPlaying) {
         var previousFrameNanos = 0L
         while (true) {
             val frameNanos = withFrameNanos { it }
             if (previousFrameNanos != 0L && isPlaying) {
                 val deltaSeconds = ((frameNanos - previousFrameNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-                motionPhase += deltaSeconds * (PI.toFloat() * 0.95f)
-                if (motionPhase > PI.toFloat() * 200f) motionPhase -= PI.toFloat() * 200f
+                travelOffsetPx += deltaSeconds * 18f
+                if (travelOffsetPx > waveProfile.baseWavelengthPx * 100f) {
+                    travelOffsetPx -= waveProfile.baseWavelengthPx * 100f
+                }
             }
             previousFrameNanos = frameNanos
         }
@@ -964,17 +944,16 @@ private fun WaveformScrubber(
                 val tailPadding = 4.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 11.4.dp.toPx() * waveEnergy
-                val step = 1.15f
+                val maxAmp = 9.4.dp.toPx() * waveAmplitude
+                val step = 1.35f
                 val path = Path()
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
 
                 if (activeWaveEnd > waveInset) {
-                    val startBlendWidth = 14.dp.toPx()
-                    val pillBlendWidth = 18.dp.toPx()
-                    val activeWidth = (activeWaveEnd - waveInset).coerceAtLeast(1f)
+                    val startBlendWidth = 10.dp.toPx()
+                    val pillBlendWidth = 14.dp.toPx()
 
                     fun centerBlend(distance: Float, widthPx: Float): Float {
                         val normalized = (distance / widthPx).coerceIn(0f, 1f)
@@ -982,26 +961,17 @@ private fun WaveformScrubber(
                     }
 
                     fun waveformValue(x: Float): Float {
-                        val distanceFromPill = x - activeWaveEnd
-                        val blended = waveProfile.layers.sumOf { layer ->
-                            val wobble = sin(motionPhase * layer.motionRate + layer.spatialPhase) * layer.motionDepth
-                            val angle =
-                                (
-                                    distanceFromPill /
-                                        (waveProfile.baseWavelengthPx / layer.cycleMultiplier)
-                                    ) * 2f * PI.toFloat() +
-                                    layer.spatialPhase +
-                                    wobble
-                            (sin(angle) * layer.weight).toDouble()
-                        }.toFloat() / waveProfile.weightSum
-
-                        val contour =
-                            0.88f +
-                                0.12f * cos((((x - waveInset) / activeWidth).coerceIn(0f, 1f) - 0.5f) * PI.toFloat())
+                        val traveledX = x + travelOffsetPx
+                        val primary =
+                            sin((traveledX / waveProfile.baseWavelengthPx) * 2f * PI.toFloat() + waveProfile.primaryPhase)
+                        val harmonic =
+                            sin(
+                                (traveledX / (waveProfile.baseWavelengthPx / 2.08f)) * 2f * PI.toFloat() +
+                                    waveProfile.secondaryPhase,
+                            ) * 0.18f
                         val startBlend = centerBlend(x - waveInset, startBlendWidth)
                         val pillBlend = centerBlend(activeWaveEnd - x, pillBlendWidth)
-                        val edgeBlend = startBlend * pillBlend
-                        return blended * contour * edgeBlend
+                        return (primary + harmonic) * startBlend * pillBlend
                     }
 
                     var x = waveInset
@@ -1067,20 +1037,11 @@ private fun WaveformScrubber(
     }
 }
 
-private data class WavePart(
-    val cycleMultiplier: Float,
-    val weight: Float,
-    val spatialPhase: Float,
-    val motionRate: Float,
-    val motionDepth: Float,
-)
-
 private data class WaveProfile(
     val baseWavelengthPx: Float,
-    val layers: List<WavePart>,
-) {
-    val weightSum: Float = layers.sumOf { it.weight.toDouble() }.toFloat().coerceAtLeast(0.001f)
-}
+    val primaryPhase: Float,
+    val secondaryPhase: Float,
+)
 
 @Composable
 private fun BottomAction(
