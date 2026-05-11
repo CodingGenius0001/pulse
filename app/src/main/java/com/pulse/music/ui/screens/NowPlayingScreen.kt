@@ -876,7 +876,6 @@ private fun WaveformScrubber(
     val shownProgress = if (dragProgress >= 0f) dragProgress else progress
 
     val waveColor = PulseTheme.colors.accentViolet
-    val waveFillColor = PulseTheme.colors.accentViolet.copy(alpha = 0.3f)
     val pillColor = PulseTheme.colors.accentCream
     val inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f)
 
@@ -893,7 +892,7 @@ private fun WaveformScrubber(
     }
 
     val waveAmplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.97f,
+        targetValue = if (isPlaying) 1f else 0f,
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
@@ -950,7 +949,6 @@ private fun WaveformScrubber(
                 val maxAmp = 13.6.dp.toPx() * waveAmplitude
                 val step = 1.15f
                 val strokePath = Path()
-                val fillPath = Path()
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
@@ -983,31 +981,20 @@ private fun WaveformScrubber(
                     }
 
                     var x = waveInset
-                    fillPath.moveTo(waveInset, centerY)
                     while (x <= activeWaveEnd) {
                         val y = centerY - (compositeHeight(x) * maxAmp)
                         if (!hasPoint) {
                             strokePath.moveTo(x, y)
-                            fillPath.lineTo(x, y)
                             hasPoint = true
                         } else {
                             strokePath.lineTo(x, y)
-                            fillPath.lineTo(x, y)
                         }
                         x += step
-                    }
-                    if (hasPoint) {
-                        fillPath.lineTo(activeWaveEnd, centerY)
-                        fillPath.close()
                     }
 
                 }
 
                 if (hasPoint) {
-                    drawPath(
-                        path = fillPath,
-                        color = waveFillColor,
-                    )
                     drawPath(
                         path = strokePath,
                         color = waveColor,
