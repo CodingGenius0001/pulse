@@ -124,8 +124,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.PI
-import kotlin.math.sin
+import kotlin.math.exp
 
 @Composable
 fun NowPlayingScreen(
@@ -881,16 +880,19 @@ private fun WaveformScrubber(
 
     val waveProfile = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
-        val baseWavelengthPx = random.nextDouble(36.0, 41.0).toFloat()
         WaveProfile(
-            baseWavelengthPx = baseWavelengthPx,
-            primaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
-            secondaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
+            primaryWidthPx = random.nextDouble(44.0, 58.0).toFloat(),
+            primaryHeight = random.nextDouble(0.82, 0.98).toFloat(),
+            secondaryWidthPx = random.nextDouble(28.0, 38.0).toFloat(),
+            secondaryHeight = random.nextDouble(0.2, 0.32).toFloat(),
+            lobeGapPx = random.nextDouble(18.0, 28.0).toFloat(),
+            baseOffsetPx = random.nextDouble(30.0, 56.0).toFloat(),
+            travelSpeedPxPerSecond = random.nextDouble(26.0, 34.0).toFloat(),
         )
     }
 
-    val waveAmplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0.94f,
+    val ridgeAmplitude by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.96f,
         animationSpec = tween(durationMillis = 460),
         label = "waveAmplitude",
     )
@@ -901,9 +903,9 @@ private fun WaveformScrubber(
             val frameNanos = withFrameNanos { it }
             if (previousFrameNanos != 0L && isPlaying) {
                 val deltaSeconds = ((frameNanos - previousFrameNanos) / 1_000_000_000f).coerceAtMost(0.05f)
-                travelOffsetPx += deltaSeconds * 18f
-                if (travelOffsetPx > waveProfile.baseWavelengthPx * 100f) {
-                    travelOffsetPx -= waveProfile.baseWavelengthPx * 100f
+                travelOffsetPx += deltaSeconds * waveProfile.travelSpeedPxPerSecond
+                if (travelOffsetPx > 100_000f) {
+                    travelOffsetPx -= 100_000f
                 }
             }
             previousFrameNanos = frameNanos
@@ -944,39 +946,57 @@ private fun WaveformScrubber(
                 val tailPadding = 4.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 9.4.dp.toPx() * waveAmplitude
-                val step = 1.35f
+                val maxAmp = 5.8.dp.toPx() * ridgeAmplitude
+                val step = 1.1f
                 val path = Path()
                 var hasPoint = false
                 val activeWaveEnd = (pillX - pillWidth / 2f - tailPadding).coerceAtLeast(waveInset)
                 val inactiveTrackStart = (pillX + pillWidth / 2f + tailPadding).coerceAtMost(width)
 
                 if (activeWaveEnd > waveInset) {
-                    val startBlendWidth = 10.dp.toPx()
-                    val pillBlendWidth = 14.dp.toPx()
+                    val startBlendWidth = 18.dp.toPx()
+                    val pillBlendWidth = 20.dp.toPx()
+                    val cycleLengthPx =
+                        waveProfile.baseOffsetPx + waveProfile.primaryWidthPx + waveProfile.secondaryWidthPx + waveProfile.lobeGapPx
+                    val cycleProgress = travelOffsetPx % cycleLengthPx
+                    val primaryCenter = activeWaveEnd - waveProfile.baseOffsetPx + cycleProgress
+                    val secondaryCenter = primaryCenter - waveProfile.lobeGapPx
+                    val wrappedPrimaryCenter =
+                        if (primaryCenter > activeWaveEnd + waveProfile.primaryWidthPx) {
+                            primaryCenter - cycleLengthPx
+                        } else {
+                            primaryCenter
+                        }
+                    val wrappedSecondaryCenter =
+                        if (secondaryCenter > activeWaveEnd + waveProfile.secondaryWidthPx) {
+                            secondaryCenter - cycleLengthPx
+                        } else {
+                            secondaryCenter
+                        }
 
                     fun centerBlend(distance: Float, widthPx: Float): Float {
                         val normalized = (distance / widthPx).coerceIn(0f, 1f)
                         return normalized * normalized * (3f - 2f * normalized)
                     }
 
-                    fun waveformValue(x: Float): Float {
-                        val traveledX = x + travelOffsetPx
-                        val primary =
-                            sin((traveledX / waveProfile.baseWavelengthPx) * 2f * PI.toFloat() + waveProfile.primaryPhase)
-                        val harmonic =
-                            sin(
-                                (traveledX / (waveProfile.baseWavelengthPx / 2.08f)) * 2f * PI.toFloat() +
-                                    waveProfile.secondaryPhase,
-                            ) * 0.18f
+                    fun lobe(distance: Float, widthPx: Float, height: Float): Float {
+                        val normalized = distance / widthPx
+                        return (exp(-(normalized * normalized) * 1.6f) * height.toDouble()).toFloat()
+                    }
+
+                    fun ridgeValue(x: Float): Float {
+                        val primaryRise =
+                            lobe(x - wrappedPrimaryCenter, waveProfile.primaryWidthPx, waveProfile.primaryHeight)
+                        val secondaryRise =
+                            lobe(x - wrappedSecondaryCenter, waveProfile.secondaryWidthPx, waveProfile.secondaryHeight)
                         val startBlend = centerBlend(x - waveInset, startBlendWidth)
                         val pillBlend = centerBlend(activeWaveEnd - x, pillBlendWidth)
-                        return (primary + harmonic) * startBlend * pillBlend
+                        return (primaryRise + secondaryRise) * startBlend * pillBlend
                     }
 
                     var x = waveInset
                     while (x <= activeWaveEnd) {
-                        val y = centerY + (waveformValue(x) * maxAmp)
+                        val y = centerY - (ridgeValue(x) * maxAmp)
                         if (!hasPoint) {
                             path.moveTo(x, y)
                             hasPoint = true
@@ -1038,9 +1058,13 @@ private fun WaveformScrubber(
 }
 
 private data class WaveProfile(
-    val baseWavelengthPx: Float,
-    val primaryPhase: Float,
-    val secondaryPhase: Float,
+    val primaryWidthPx: Float,
+    val primaryHeight: Float,
+    val secondaryWidthPx: Float,
+    val secondaryHeight: Float,
+    val lobeGapPx: Float,
+    val baseOffsetPx: Float,
+    val travelSpeedPxPerSecond: Float,
 )
 
 @Composable
