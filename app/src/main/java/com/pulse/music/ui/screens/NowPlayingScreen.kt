@@ -884,10 +884,10 @@ private fun WaveformScrubber(
     val waveProfile = remember(waveSeed) {
         val random = kotlin.random.Random(waveSeed)
         WaveProfile(
-            primaryWavelengthPx = random.nextDouble(38.0, 44.0).toFloat(),
-            primaryAmplitude = random.nextDouble(0.82, 0.92).toFloat(),
-            secondaryWavelengthMultiplier = random.nextDouble(1.7, 2.2).toFloat(),
-            secondaryAmplitude = random.nextDouble(0.34, 0.44).toFloat(),
+            primaryWavelengthPx = random.nextDouble(56.0, 66.0).toFloat(),
+            primaryAmplitude = random.nextDouble(0.96, 1.08).toFloat(),
+            secondaryWavelengthMultiplier = random.nextDouble(2.35, 2.9).toFloat(),
+            secondaryAmplitude = random.nextDouble(0.42, 0.54).toFloat(),
             primaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
             secondaryPhase = random.nextDouble(0.0, PI * 2).toFloat(),
             travelSpeedPxPerSecond = random.nextDouble(26.0, 34.0).toFloat(),
@@ -949,7 +949,7 @@ private fun WaveformScrubber(
                 val tailPadding = 4.dp.toPx()
                 val pillX = (width * shownProgress).coerceIn(pillWidth / 2f, width - pillWidth / 2f)
                 val waveInset = 4.dp.toPx()
-                val maxAmp = 8.8.dp.toPx() * waveAmplitude
+                val maxAmp = 11.8.dp.toPx() * waveAmplitude
                 val step = 1.15f
                 val strokePath = Path()
                 val fillPath = Path()
