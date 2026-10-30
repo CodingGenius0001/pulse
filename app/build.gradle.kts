@@ -53,8 +53,8 @@ android {
         applicationId = "com.pulse.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 63
-        versionName = "0.6.3"
+        versionCode = 64
+        versionName = "0.7.0"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -120,6 +120,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+composeCompiler {
+    // Lets composables with unstable params (ViewModels, lambdas) skip
+    // recomposition when nothing changed. Default from Kotlin 2.0.20 on.
+    enableStrongSkippingMode = true
 }
 
 val syncReadmeToAssets = tasks.register<Copy>("syncReadmeToAssets") {

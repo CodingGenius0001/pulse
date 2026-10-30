@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -30,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.data.Song
+import com.pulse.music.data.SongMetadata
+import com.pulse.music.ui.AlbumEntry
+import com.pulse.music.ui.ArtistEntry
+import com.pulse.music.ui.LibraryIndex
+import com.pulse.music.ui.Routes
+import com.pulse.music.ui.components.LocalSongMetadata
+import com.pulse.music.ui.components.SongListRow
+import com.pulse.music.data.displayWith
+import com.pulse.music.util.songCountLabel
 import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.BottomBarContentPadding
@@ -54,13 +65,16 @@ import com.pulse.music.ui.theme.PulseTheme
 fun SearchScreen(
     vm: LibraryViewModel,
     onSongTap: (List<Song>, Int) -> Unit,
+    onOpenCollection: (String) -> Unit,
 ) {
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
+    val index by vm.libraryIndex.collectAsStateWithLifecycle()
     val recentSearches by vm.recentLibrarySearches.collectAsStateWithLifecycle()
-    var query by remember { mutableStateOf("") }
+    val metadata = LocalSongMetadata.current
+    var query by rememberSaveable { mutableStateOf("") }
     val trimmed = query.trim()
-    val results = remember(trimmed, allSongs) {
-        if (trimmed.isEmpty()) SearchResults.empty() else filterLibrary(allSongs, trimmed)
+    val results = remember(trimmed, allSongs, index, metadata) {
+        if (trimmed.isEmpty()) SearchResults.empty() else filterLibrary(allSongs, index, metadata, trimmed)
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
@@ -98,37 +112,34 @@ fun SearchScreen(
                 ) {
                     if (results.songs.isNotEmpty()) {
                         item { ResultSectionLabel("Songs") }
-                        items(results.songs.size) { index ->
-                            SongRow(song = results.songs[index], onClick = {
+                        itemsIndexed(results.songs, key = { _, song -> "song_${song.id}" }) { position, song ->
+                            SongListRow(song = song, onClick = {
                                 vm.recordLibrarySearch(trimmed)
-                                onSongTap(results.songs, index)
+                                onSongTap(results.songs, position)
                             })
                         }
                     }
                     if (results.albums.isNotEmpty()) {
                         item { ResultSectionLabel("Albums") }
-                        items(results.albums) { (albumName, songs) ->
+                        items(results.albums, key = { "album_${it.key}" }) { album ->
                             AlbumHit(
-                                albumName = albumName,
-                                artist = songs.firstOrNull()?.artist.orEmpty(),
-                                songCount = songs.size,
-                                representative = songs.first(),
+                                album = album,
                                 onClick = {
                                     vm.recordLibrarySearch(trimmed)
-                                    onSongTap(songs, 0)
+                                    onOpenCollection(Routes.album(album.key))
                                 },
                             )
                         }
                     }
                     if (results.artists.isNotEmpty()) {
                         item { ResultSectionLabel("Artists") }
-                        items(results.artists) { (artistName, songs) ->
+                        items(results.artists, key = { "artist_${it.key}" }) { artist ->
                             ArtistHit(
-                                artist = artistName,
-                                songCount = songs.size,
+                                artist = artist.name,
+                                songCount = artist.songs.size,
                                 onClick = {
                                     vm.recordLibrarySearch(trimmed)
-                                    onSongTap(songs, 0)
+                                    onOpenCollection(Routes.artist(artist.key))
                                 },
                             )
                         }
@@ -316,37 +327,8 @@ private fun ResultSectionLabel(text: String) {
 }
 
 @Composable
-private fun SongRow(song: Song, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(PulseTheme.colors.surfaceElevated)
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        AlbumArt(song = song, cornerRadius = 12.dp, modifier = Modifier.size(50.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = song.title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                text = song.artistAndAlbumLabel(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
 private fun AlbumHit(
-    albumName: String,
-    artist: String,
-    songCount: Int,
-    representative: Song,
+    album: AlbumEntry,
     onClick: () -> Unit,
 ) {
     Row(
@@ -359,10 +341,10 @@ private fun AlbumHit(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AlbumArt(song = representative, cornerRadius = 12.dp, modifier = Modifier.size(50.dp))
+        AlbumArt(song = album.coverSong, cornerRadius = 12.dp, modifier = Modifier.size(50.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = albumName, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(text = "$artist - $songCount songs", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = album.title, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = "Album · ${album.artist}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -395,15 +377,15 @@ private fun ArtistHit(artist: String, songCount: Int, onClick: () -> Unit) {
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(text = artist, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(text = "$songCount songs", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            Text(text = "Artist · ${songCountLabel(songCount)}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
 private data class SearchResults(
     val songs: List<Song>,
-    val albums: List<Pair<String, List<Song>>>,
-    val artists: List<Pair<String, List<Song>>>,
+    val albums: List<AlbumEntry>,
+    val artists: List<ArtistEntry>,
 ) {
     fun isEmpty(): Boolean = songs.isEmpty() && albums.isEmpty() && artists.isEmpty()
 
@@ -412,30 +394,27 @@ private data class SearchResults(
     }
 }
 
-private fun filterLibrary(all: List<Song>, query: String): SearchResults {
+private fun filterLibrary(
+    all: List<Song>,
+    index: LibraryIndex,
+    metadata: Map<Long, SongMetadata>,
+    query: String,
+): SearchResults {
     val q = query.lowercase()
-    val matchingSongs = all.filter { s ->
-        s.title.lowercase().contains(q) ||
-            s.artist.lowercase().contains(q) ||
-            s.album.lowercase().contains(q)
-    }
-
-    val matchingAlbumNames = all.map { it.album }
-        .filter { it.isNotBlank() && it.lowercase().contains(q) }
-        .distinct()
-    val albumGroups = matchingAlbumNames.map { name -> name to all.filter { it.album == name } }.filter { it.second.isNotEmpty() }.take(10)
-
-    val matchingArtistNames = all.map { it.artist }.filter { it.lowercase().contains(q) }.distinct()
-    val artistGroups = matchingArtistNames.map { name -> name to all.filter { it.artist == name } }.filter { it.second.isNotEmpty() }.take(10)
+    val matchingSongs = all
+        .map { it to it.displayWith(metadata[it.id]) }
+        .filter { (_, d) ->
+            d.title.lowercase().contains(q) ||
+                d.artist.lowercase().contains(q) ||
+                d.album.lowercase().contains(q)
+        }
+        // Title matches first, then artist/album matches.
+        .sortedBy { (_, d) -> if (d.title.lowercase().contains(q)) 0 else 1 }
+        .map { it.first }
 
     return SearchResults(
-        songs = matchingSongs.take(30),
-        albums = albumGroups,
-        artists = artistGroups,
+        songs = matchingSongs.take(40),
+        albums = index.albums.filter { it.title.lowercase().contains(q) }.take(10),
+        artists = index.artists.filter { it.name.lowercase().contains(q) }.take(10),
     )
 }
-
-private fun Song.artistAndAlbumLabel(): String =
-    listOf(artist, album.takeIf { it.isNotBlank() })
-        .filterNotNull()
-        .joinToString(" - ")

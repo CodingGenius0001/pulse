@@ -148,6 +148,7 @@ class MusicScanner(private val context: Context) {
         MediaStore.Audio.Media.DATA,
         MediaStore.Audio.Media.DATE_ADDED,
         MediaStore.Audio.Media.DISPLAY_NAME,
+        MediaStore.Audio.Media.TRACK,
     )
 
     private fun songFromCursor(cursor: android.database.Cursor): Song? {
@@ -160,6 +161,7 @@ class MusicScanner(private val context: Context) {
         val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
         val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
         val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+        val trackCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
 
         val rawPath = cursor.getString(dataCol).orEmpty()
         if (rawPath.isBlank()) return null
@@ -181,6 +183,7 @@ class MusicScanner(private val context: Context) {
             durationMs = cursor.getLong(durationCol),
             dataPath = rawPath,
             dateAdded = cursor.getLong(dateAddedCol),
+            trackNumber = if (cursor.isNull(trackCol)) 0 else cursor.getInt(trackCol).coerceAtLeast(0),
         )
     }
 

@@ -17,6 +17,9 @@ interface MetadataDao {
     @Query("SELECT * FROM song_metadata WHERE songId = :songId LIMIT 1")
     fun observe(songId: Long): Flow<SongMetadata?>
 
+    @Query("SELECT * FROM song_metadata")
+    fun observeAll(): Flow<List<SongMetadata>>
+
     @Query("DELETE FROM song_metadata WHERE songId = :songId")
     suspend fun delete(songId: Long)
 

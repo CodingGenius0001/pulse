@@ -1,5 +1,6 @@
 package com.pulse.music.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -30,6 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -121,61 +123,78 @@ fun PulseBottomNav(
 fun MiniPlayer(
     song: Song,
     isPlaying: Boolean,
+    progress: () -> Float,
     onTap: () -> Unit,
     onPlayPause: () -> Unit,
-    onSkipForward10: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val display = song.display()
+    val accent = PulseTheme.colors.accentViolet
+    val track = PulseTheme.colors.line2
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(PulseTheme.colors.surfaceElevated)
             .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(24.dp))
-            .clickable(onClick = onTap)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .clickable(onClickLabel = "Open player", onClick = onTap),
     ) {
-        AlbumArt(
-            song = song,
-            cornerRadius = 12.dp,
-            modifier = Modifier.size(48.dp),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.title,
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AlbumArt(
+                song = song,
+                cornerRadius = 12.dp,
+                modifier = Modifier.size(48.dp),
             )
-            Text(
-                text = song.artist,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = display.title,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = display.artist,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            MiniPlayerAction(
+                icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                emphasized = true,
+                onClick = onPlayPause,
+            )
+            MiniPlayerAction(
+                icon = Icons.Filled.SkipNext,
+                contentDescription = "Next track",
+                onClick = onNext,
             )
         }
-        MiniPlayerAction(
-            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-            contentDescription = if (isPlaying) "Pause" else "Play",
-            emphasized = true,
-            onClick = onPlayPause,
-        )
-        MiniPlayerAction(
-            icon = Icons.Filled.Forward10,
-            contentDescription = "Forward 10 seconds",
-            onClick = onSkipForward10,
-        )
-        MiniPlayerAction(
-            icon = Icons.Filled.SkipNext,
-            contentDescription = "Next track",
-            onClick = onNext,
-        )
+        // Thin progress line along the bottom edge. Drawn in a Canvas so ticks
+        // only redraw this line, not the whole row.
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .height(2.dp),
+        ) {
+            drawRoundRect(color = track, cornerRadius = CornerRadius(size.height))
+            drawRoundRect(
+                color = accent,
+                size = Size(size.width * progress().coerceIn(0f, 1f), size.height),
+                cornerRadius = CornerRadius(size.height),
+            )
+        }
     }
 }
 
@@ -188,7 +207,7 @@ private fun MiniPlayerAction(
 ) {
     Box(
         modifier = Modifier
-            .size(if (emphasized) 40.dp else 36.dp)
+            .size(if (emphasized) 44.dp else 40.dp)
             .clip(CircleShape)
             .background(
                 if (emphasized) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceSoft,

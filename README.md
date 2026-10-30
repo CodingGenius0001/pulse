@@ -81,6 +81,15 @@ base64 -i debug.jks > debug.jks.b64
 
 LRCLIB is free and unauthenticated. Pulse just hits their API directly — no setup required.
 
+## What's new in v0.7.0
+
+- Albums, artists and playlists now open real pages with the track list, Play and Shuffle. Albums play in track order.
+- Every song has a menu (⋮ or long-press): Play next, Add to queue, Add to playlist, Like, Go to album, Go to artist.
+- Shuffle and repeat sit right on the Now Playing controls. Shuffle reorders the queue, so the Queue screen shows the real play order.
+- Pulse remembers your queue and position and picks up where you left off after the app is closed.
+- Sleep timer (15–90 minutes or end of track) under More on Now Playing.
+- Fixed: library rescans were silently emptying playlists.
+
 ## What's new in v0.5.16
 
 - Now Playing uses a more stable top-card layout, so tracks no longer visibly shrink or expand depending on whether inline lyrics load.
@@ -350,6 +359,26 @@ updates to find the active line.
 ---
 
 ## Changelog
+
+### v0.7.0
+- Fixed library rescans emptying every playlist (song rows were saved with REPLACE, which cascade-deleted their playlist entries)
+- Album, artist, playlist, Liked songs and Recently added pages with Play / Shuffle; albums play in track order (new trackNumber column, database v8, one automatic rescan)
+- Song menu on every list: Play next, Add to queue, Add to playlist, Like, Go to album, Go to artist
+- Visible shuffle and repeat controls; shuffle now reorders the queue so the Queue screen matches what plays next
+- Queue and position are restored on the next launch, and the player recovers its queue when the app is reopened mid-playback
+- Sleep timer: 15 to 90 minutes, or the end of the current track
+- Resolved titles, artists and artwork now show everywhere (lists, mini player, queue, search), not only on Now Playing
+- Library: 2-column album grid, artist pages with their albums, Songs tab with Shuffle all and sorting
+- Play counts no longer go up when a track's artwork or title refreshes
+- Scrolling lists no longer fires a metadata lookup per visible row; concurrent lookups for one song are shared
+- Paused players no longer redraw the scrubber every frame; lyrics are parsed once per song
+- Mini player shows a progress line; dropped the 10-second skip button
+- Removed the placeholder "Sign in with Google" and "Sync across devices" settings
+- Settings no longer hides its last rows behind the player bar
+- "On repeat" and the For You hero only use songs you've actually played (the top-played query ignored play counts of zero)
+- Albums and artists are grouped by your file tags, so provider variants like "After Hours (Explicit)" no longer split an album
+- Resolved names that only differ in capitalization keep your tag's spelling
+- The player no longer rebuilds the media notification every time any song's metadata changes
 
 ### v0.5.19
 - Song availability is now preserved locally across rescans, so playlists, likes, cached metadata, and lyrics are no longer destroyed just because MediaStore temporarily misses files during an update or reopen

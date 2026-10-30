@@ -1,6 +1,6 @@
 package com.pulse.music.data
 
-import android.net.Uri
+import kotlinx.coroutines.flow.map
 import com.pulse.music.scanner.MusicScanner
 import kotlinx.coroutines.flow.Flow
 
@@ -39,23 +39,6 @@ class MusicRepository(
         ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
 
         return merged.size
-    }
-
-    suspend fun ingestImportedSong(
-        uri: Uri,
-        titleOverride: String? = null,
-        artistOverride: String? = null,
-        albumOverride: String? = null,
-    ): Song? {
-        val scanned = scanner.scanByUri(uri) ?: return null
-        val imported = scanned.copy(
-            title = titleOverride?.trim().takeUnless { it.isNullOrBlank() } ?: scanned.title,
-            artist = artistOverride?.trim().takeUnless { it.isNullOrBlank() } ?: scanned.artist,
-            album = albumOverride?.trim().takeUnless { it.isNullOrBlank() } ?: scanned.album,
-        )
-        val merged = mergeScannedSong(imported, markSeenNow = true)
-        ensureSystemPlaylist(SYSTEM_LIKED, "Liked songs")
-        return merged
     }
 
     /** Exposes the scanner's folder operations to the UI layer. */
@@ -113,17 +96,36 @@ class MusicRepository(
 
     suspend fun songCount(): Int = dao.songCount()
 
-    suspend fun toggleLike(song: Song) {
-        dao.setLiked(song.id, !song.liked)
+    /**
+     * Flips the stored like state. Reads the current value from Room instead of
+     * trusting [song], because callers often hold a stale copy.
+     */
+    suspend fun toggleLike(song: Song): Boolean {
+        val liked = !(dao.isLiked(song.id) ?: song.liked)
+        dao.setLiked(song.id, liked)
         // Sync with the Liked songs system playlist
-        val liked = dao.getSystemPlaylist(SYSTEM_LIKED)
-        if (liked != null) {
-            if (!song.liked) {
-                dao.addSongToPlaylist(PlaylistSongCrossRef(liked.id, song.id))
+        val likedPlaylist = dao.getSystemPlaylist(SYSTEM_LIKED)
+        if (likedPlaylist != null) {
+            if (liked) {
+                dao.addSongToPlaylist(PlaylistSongCrossRef(likedPlaylist.id, song.id))
             } else {
-                dao.removeSongFromPlaylist(liked.id, song.id)
+                dao.removeSongFromPlaylist(likedPlaylist.id, song.id)
             }
         }
+        return liked
+    }
+
+    fun observeLikedIds(): Flow<Set<Long>> = dao.observeLikedIds().map { it.toSet() }
+
+    /**
+     * Looks up songs by id, preserving the order of [ids] and skipping ids that
+     * no longer exist. Includes songs currently marked unavailable.
+     */
+    suspend fun getSongsInOrder(ids: List<Long>): List<Song> {
+        if (ids.isEmpty()) return emptyList()
+        // SQLite caps bound parameters at 999 per statement.
+        val byId = ids.distinct().chunked(900).flatMap { dao.getSongs(it) }.associateBy { it.id }
+        return ids.mapNotNull { byId[it] }
     }
 
     suspend fun markPlayed(songId: Long) {
@@ -133,6 +135,9 @@ class MusicRepository(
     // -------- Playlists --------
 
     fun observePlaylists(): Flow<List<Playlist>> = dao.observePlaylists()
+
+    fun observePlaylistSongCounts(): Flow<Map<Long, Int>> =
+        dao.observePlaylistSongCounts().map { rows -> rows.associate { it.playlistId to it.songCount } }
 
     fun observeSongsInPlaylist(playlistId: Long): Flow<List<Song>> =
         dao.observeSongsInPlaylist(playlistId)

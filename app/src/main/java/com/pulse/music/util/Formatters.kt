@@ -39,3 +39,18 @@ fun gradientFor(seed: String): Brush {
     val palette = palettes[Math.floorMod(hash, palettes.size)]
     return Brush.linearGradient(palette)
 }
+
+/** Format a total running time as "42 min" or "1 hr 5 min". */
+fun formatTotalDuration(ms: Long): String {
+    val totalMinutes = TimeUnit.MILLISECONDS.toMinutes(ms.coerceAtLeast(0))
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return when {
+        hours > 0 && minutes > 0 -> "$hours hr $minutes min"
+        hours > 0 -> "$hours hr"
+        else -> "${minutes.coerceAtLeast(1)} min"
+    }
+}
+
+/** "1 song" / "12 songs". */
+fun songCountLabel(count: Int): String = if (count == 1) "1 song" else "$count songs"

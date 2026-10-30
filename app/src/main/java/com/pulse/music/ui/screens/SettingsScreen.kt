@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -62,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.ThemePreference
 import com.pulse.music.ui.LibraryViewModel
+import com.pulse.music.ui.components.BottomBarContentPadding
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
@@ -89,7 +91,7 @@ fun SettingsScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(Color.Transparent),
-        contentPadding = PaddingValues(top = 12.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = BottomBarContentPadding.calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
@@ -139,12 +141,6 @@ fun SettingsScreen(
             }
         }
         item {
-            SettingsSection(title = "Account") {
-                SettingRow(title = "Sign in with Google", subtitle = "Not signed in yet")
-                SettingRow(title = "Sync across devices", subtitle = "Reserved for a future account flow")
-            }
-        }
-        item {
             SettingsSection(title = "Updates") {
                 SettingRow(
                     title = "Release notifications",
@@ -183,11 +179,11 @@ fun SettingsScreen(
                     val build = com.pulse.music.BuildConfig.BUILD_NUMBER
                     if (build > 0) "Pulse v$v (build $build)" else "Pulse v$v"
                 }
-                SettingRow(title = versionLabel, subtitle = "Made with care for local listening")
+                SettingRow(
+                    title = versionLabel,
+                    subtitle = "Plays the music you own. Metadata from MusicBrainz, Cover Art Archive, LRCLIB, TheAudioDB and Genius.",
+                )
             }
-        }
-        item {
-            Spacer(Modifier.height(20.dp))
         }
     }
 
@@ -626,7 +622,12 @@ private fun SectionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
 
 @Composable
 private fun Chevron() {
-    Text(text = ">", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+    Icon(
+        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(20.dp),
+    )
 }
 
 @Composable

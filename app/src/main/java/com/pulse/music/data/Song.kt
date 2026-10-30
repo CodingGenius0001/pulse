@@ -24,6 +24,8 @@ data class Song(
     val liked: Boolean = false,
     val isAvailable: Boolean = true,
     val lastSeenAt: Long = System.currentTimeMillis(),
+    /** MediaStore TRACK: disc * 1000 + track, or 0 when the file has no track tag. */
+    val trackNumber: Int = 0,
 ) {
     /** URI to play via MediaStore. */
     val contentUri: Uri
