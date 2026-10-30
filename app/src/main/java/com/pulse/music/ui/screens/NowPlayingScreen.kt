@@ -43,12 +43,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
@@ -104,6 +107,7 @@ import androidx.media3.common.Player
 import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
 import com.pulse.music.data.SongMetadata
+import com.pulse.music.data.displayWith
 import com.pulse.music.lyrics.LrcLine
 import com.pulse.music.lyrics.LyricsResult
 import com.pulse.music.lyrics.parseLrc
@@ -113,6 +117,9 @@ import com.pulse.music.ui.LibraryViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.AddToPlaylistDialog
 import com.pulse.music.ui.components.CircleButton
+import com.pulse.music.ui.components.LocalSongActions
+import com.pulse.music.ui.components.isKnownAlbumName
+import com.pulse.music.ui.components.isKnownArtistName
 import com.pulse.music.ui.components.PillGroup
 import com.pulse.music.ui.components.PillIconButton
 import com.pulse.music.ui.components.PlayPill
@@ -153,9 +160,10 @@ fun NowPlayingScreen(
         app.metadataRepository.resolve(song)
     }
 
-    val displayTitle = metadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: song.title
-    val displayArtist = metadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: song.artist
-    val displayAlbum = metadata?.resolvedAlbum?.takeIf(String::isNotBlank) ?: song.album
+    val display = song.displayWith(metadata)
+    val displayTitle = display.title
+    val displayArtist = display.artist
+    val displayAlbum = display.album
 
     val lyricsResult by produceState<LyricsResult?>(
         initialValue = null,
@@ -167,12 +175,18 @@ fun NowPlayingScreen(
         value = null
         value = app.lyricsRepository.lyricsFor(song)
     }
-    val inlineLyric = remember(lyricsResult, state.positionMs) {
-        extractInlineLyric(lyricsResult, state.positionMs)
+    // Parse once per result; the position ticks twice a second.
+    val syncedLines = remember(lyricsResult) {
+        (lyricsResult as? LyricsResult.Found)?.takeIf { it.synced }?.let { parseLrc(it.text) }
+    }
+    val inlineLyric = remember(lyricsResult, syncedLines, state.positionMs) {
+        extractInlineLyric(lyricsResult, syncedLines, state.positionMs)
     }
 
     var lyricsExpanded by remember(song.id) { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
+    var showSleepTimer by remember { mutableStateOf(false) }
+    val songActions = LocalSongActions.current
     var showAddToPlaylist by remember(song.id) { mutableStateOf(false) }
     var showFixMatch by remember(song.id) { mutableStateOf(false) }
     var matchRefreshState by remember(song.id) { mutableStateOf<MatchRefreshState?>(null) }
@@ -209,7 +223,8 @@ fun NowPlayingScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            // Centered so tall phones don't leave a dead band under the controls.
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -262,7 +277,9 @@ fun NowPlayingScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = "$displayArtist - $displayAlbum",
+                                        text = listOf(displayArtist, displayAlbum.takeIf { it.isKnownAlbumName() })
+                                            .filterNotNull()
+                                            .joinToString(" · "),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 1,
@@ -323,18 +340,22 @@ fun NowPlayingScreen(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            PillGroup {
-                                PillIconButton(onClick = { vm.previous() }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.SkipPrevious,
-                                        contentDescription = "Previous track",
-                                        tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(26.dp),
-                                    )
-                                }
+                            ModeToggle(
+                                icon = Icons.Filled.Shuffle,
+                                contentDescription = if (state.shuffleEnabled) "Turn shuffle off" else "Turn shuffle on",
+                                active = state.shuffleEnabled,
+                                onClick = { vm.toggleShuffle() },
+                            )
+                            PillIconButton(onClick = { vm.previous() }, size = 48.dp) {
+                                Icon(
+                                    imageVector = Icons.Filled.SkipPrevious,
+                                    contentDescription = "Previous track",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(30.dp),
+                                )
                             }
                             PlayPill(onClick = { vm.playOrPause() }) {
                                 Icon(
@@ -344,16 +365,24 @@ fun NowPlayingScreen(
                                     modifier = Modifier.size(30.dp),
                                 )
                             }
-                            PillGroup {
-                                PillIconButton(onClick = { vm.next() }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.SkipNext,
-                                        contentDescription = "Next track",
-                                        tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(26.dp),
-                                    )
-                                }
+                            PillIconButton(onClick = { vm.next() }, size = 48.dp) {
+                                Icon(
+                                    imageVector = Icons.Filled.SkipNext,
+                                    contentDescription = "Next track",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(30.dp),
+                                )
                             }
+                            ModeToggle(
+                                icon = if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                                contentDescription = when (state.repeatMode) {
+                                    Player.REPEAT_MODE_ALL -> "Repeat all. Tap to repeat one"
+                                    Player.REPEAT_MODE_ONE -> "Repeat one. Tap to turn repeat off"
+                                    else -> "Repeat off. Tap to repeat all"
+                                },
+                                active = state.repeatMode != Player.REPEAT_MODE_OFF,
+                                onClick = { vm.toggleRepeat() },
+                            )
                         }
                     }
                 }
@@ -390,35 +419,55 @@ fun NowPlayingScreen(
                         onDismissRequest = { overflowOpen = false },
                     ) {
                             DropdownMenuItem(
-                                text = { Text(if (state.shuffleEnabled) "Shuffle - on" else "Shuffle") },
-                                onClick = { vm.toggleShuffle(); overflowOpen = false },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.Shuffle,
-                                        contentDescription = null,
-                                        tint = if (state.shuffleEnabled) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                            )
-                            DropdownMenuItem(
                                 text = {
-                                    val label = when (state.repeatMode) {
-                                        Player.REPEAT_MODE_OFF -> "Repeat"
-                                        Player.REPEAT_MODE_ALL -> "Repeat - all"
-                                        Player.REPEAT_MODE_ONE -> "Repeat - one"
-                                        else -> "Repeat"
-                                    }
-                                    Text(label)
+                                    Text(
+                                        when {
+                                            state.sleepAfterCurrentTrack -> "Sleep timer · end of track"
+                                            state.sleepTimerEndsAtMs != null -> "Sleep timer · on"
+                                            else -> "Sleep timer"
+                                        },
+                                    )
                                 },
-                                onClick = { vm.toggleRepeat(); overflowOpen = false },
+                                onClick = {
+                                    overflowOpen = false
+                                    showSleepTimer = true
+                                },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                                        imageVector = Icons.Filled.Bedtime,
                                         contentDescription = null,
-                                        tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (state.sleepTimerEndsAtMs != null || state.sleepAfterCurrentTrack) {
+                                            PulseTheme.colors.accentViolet
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
                                     )
                                 },
                             )
+                            if (songActions != null && displayAlbum.isKnownAlbumName()) {
+                                DropdownMenuItem(
+                                    text = { Text("Go to album") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        songActions.openAlbum(song)
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Album, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    },
+                                )
+                            }
+                            if (songActions != null && displayArtist.isKnownArtistName()) {
+                                DropdownMenuItem(
+                                    text = { Text("Go to artist") },
+                                    onClick = {
+                                        overflowOpen = false
+                                        songActions.openArtist(song)
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Fix metadata / lyrics") },
                                 onClick = {
@@ -480,6 +529,26 @@ fun NowPlayingScreen(
                 onNext = { vm.next() },
                 onSeekTo = { vm.seekTo(it) },
                 onClose = { lyricsExpanded = false },
+            )
+        }
+
+        if (showSleepTimer) {
+            SleepTimerDialog(
+                endsAtMs = state.sleepTimerEndsAtMs,
+                afterCurrentTrack = state.sleepAfterCurrentTrack,
+                onSelectMinutes = { minutes ->
+                    vm.setSleepTimer(minutes)
+                    showSleepTimer = false
+                },
+                onSelectEndOfTrack = {
+                    vm.sleepAfterCurrentTrack()
+                    showSleepTimer = false
+                },
+                onTurnOff = {
+                    vm.cancelSleepTimer()
+                    showSleepTimer = false
+                },
+                onDismiss = { showSleepTimer = false },
             )
         }
 
@@ -723,7 +792,7 @@ private fun LyricsFullScreen(
                                 style = MaterialTheme.typography.titleLarge,
                             )
                             Text(
-                                text = "Lyrics come from LRCLIB. If this track is missing, you can place a matching .lrc file beside the audio file.",
+                                text = "Lyrics come from LRCLIB, a community database. If the match looks wrong, use More → Fix metadata / lyrics to search for the right track.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
@@ -898,6 +967,8 @@ private fun WaveformScrubber(
     )
     var travelOffsetPx by remember(waveSeed) { mutableFloatStateOf(0f) }
     LaunchedEffect(waveSeed, isPlaying) {
+        // Paused: the wave flattens via waveAmplitude and needs no per-frame redraws.
+        if (!isPlaying) return@LaunchedEffect
         var previousFrameNanos = 0L
         while (true) {
             val frameNanos = withFrameNanos { it }
@@ -1101,11 +1172,12 @@ private fun lyricsSuffix(result: LyricsResult): String = when (result) {
 
 private fun extractInlineLyric(
     result: LyricsResult?,
+    syncedLines: List<LrcLine>?,
     positionMs: Long,
 ): String? = when (result) {
     is LyricsResult.Found -> {
-        if (result.synced) {
-            val lines = parseLrc(result.text)
+        if (syncedLines != null) {
+            val lines = syncedLines
             val idx = activeLyricsIndex(lines, positionMs)
             lines.getOrNull(idx)?.text?.takeIf { it.isNotBlank() }
         } else {
@@ -1369,3 +1441,103 @@ private fun MatchField(
         )
     }
 }
+
+@Composable
+private fun ModeToggle(
+    icon: ImageVector,
+    contentDescription: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(if (active) PulseTheme.colors.surfaceSoft else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (active) PulseTheme.colors.accentViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+        if (active) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 3.dp)
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(PulseTheme.colors.accentViolet),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SleepTimerDialog(
+    endsAtMs: Long?,
+    afterCurrentTrack: Boolean,
+    onSelectMinutes: (Int) -> Unit,
+    onSelectEndOfTrack: () -> Unit,
+    onTurnOff: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var remainingMinutes by remember(endsAtMs) { mutableStateOf(endsAtMs?.let { remainingMinutesUntil(it) }) }
+    LaunchedEffect(endsAtMs) {
+        while (endsAtMs != null) {
+            kotlinx.coroutines.delay(15_000)
+            remainingMinutes = remainingMinutesUntil(endsAtMs)
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sleep timer", color = MaterialTheme.colorScheme.onBackground) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val status = when {
+                    afterCurrentTrack -> "Pausing when this track ends."
+                    remainingMinutes != null -> "Pausing in about ${remainingMinutes} min."
+                    else -> "Pause playback after:"
+                }
+                Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                    SleepOption(label = "$minutes minutes", onClick = { onSelectMinutes(minutes) })
+                }
+                SleepOption(label = "End of this track", onClick = onSelectEndOfTrack)
+            }
+        },
+        confirmButton = {
+            if (endsAtMs != null || afterCurrentTrack) {
+                TextButton(onClick = onTurnOff) {
+                    Text("Turn off", color = PulseTheme.colors.accentViolet)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        containerColor = PulseTheme.colors.surface,
+    )
+}
+
+@Composable
+private fun SleepOption(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = MaterialTheme.colorScheme.onBackground,
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    )
+}
+
+private fun remainingMinutesUntil(endsAtMs: Long): Long =
+    ((endsAtMs - System.currentTimeMillis()) / 60_000L + 1).coerceAtLeast(1)

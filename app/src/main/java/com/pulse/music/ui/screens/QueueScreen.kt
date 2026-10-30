@@ -37,13 +37,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
-import com.pulse.music.data.SongMetadata
 import com.pulse.music.player.PlayerViewModel
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.CircleButton
+import com.pulse.music.ui.components.display
 import com.pulse.music.ui.theme.PulseTheme
+import com.pulse.music.util.songCountLabel
 
 @Composable
 fun QueueScreen(
@@ -81,7 +81,12 @@ fun QueueScreen(
                     style = MaterialTheme.typography.labelSmall,
                 )
                 Text(
-                    text = "${state.queue.size} tracks",
+                    text = buildString {
+                        append(songCountLabel(state.queue.size))
+                        val remaining = (state.queue.size - state.currentIndex - 1).coerceAtLeast(0)
+                        if (state.currentIndex >= 0) append(" · $remaining up next")
+                        if (state.shuffleEnabled) append(" · shuffled")
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -108,12 +113,6 @@ fun QueueScreen(
         }
 
         val currentSong = state.currentSong
-        val currentMetadata by if (currentSong != null) {
-            PulseApplication.get().metadataRepository.observe(currentSong.id).collectAsStateWithLifecycle(initialValue = null)
-        } else {
-            androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<SongMetadata?>(null) }
-        }
-
         LazyColumn(
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -122,20 +121,21 @@ fun QueueScreen(
                 item {
                     QueueReturnCard(
                         song = currentSong,
-                        title = currentMetadata?.resolvedTitle?.takeIf(String::isNotBlank) ?: currentSong.title,
-                        artist = currentMetadata?.resolvedArtist?.takeIf(String::isNotBlank) ?: currentSong.artist,
+                        title = currentSong.display().title,
+                        artist = currentSong.display().artist,
                         onClick = onBack,
                     )
                 }
             }
 
-            items(state.queue.size) { index ->
+            items(state.queue.size, key = { state.queue[it].id }) { index ->
                 val song = state.queue[index]
+                val display = song.display()
                 val isCurrent = index == state.currentIndex
                 QueueRow(
                     index = index,
-                    title = song.title,
-                    artist = song.artist,
+                    title = display.title,
+                    artist = display.artist,
                     isCurrent = isCurrent,
                     canMoveUp = index > 0,
                     canMoveDown = index < state.queue.size - 1,

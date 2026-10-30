@@ -7,12 +7,18 @@ import com.pulse.music.network.MusicBrainzApi
 import com.pulse.music.network.SearchHit
 import com.pulse.music.network.SongDetails
 import com.pulse.music.network.TheAudioDbApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /**
@@ -37,6 +43,13 @@ class MetadataRepository(
 
     fun observe(songId: Long): Flow<SongMetadata?> = metadataDao.observe(songId)
 
+    fun observeAll(): Flow<List<SongMetadata>> = metadataDao.observeAll()
+
+    // Plain lookups for the same song (background queue, Now Playing, player
+    // session) share one in-flight request instead of each hitting every provider.
+    private val inFlightLookups = ConcurrentHashMap<Long, Deferred<SongMetadata>>()
+    private val lookupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     suspend fun resolve(
         song: Song,
         input: MatchInput = MatchInput(
@@ -46,11 +59,32 @@ class MetadataRepository(
         ),
         persistOverride: Boolean = false,
         force: Boolean = false,
+    ): SongMetadata {
+        if (force || persistOverride || !input.matches(song)) {
+            return resolveNow(song, input, persistOverride, force)
+        }
+        val lookup = inFlightLookups.computeIfAbsent(song.id) {
+            lookupScope.async(start = CoroutineStart.LAZY) {
+                try {
+                    resolveNow(song, input, persistOverride = false, force = false)
+                } finally {
+                    inFlightLookups.remove(song.id)
+                }
+            }
+        }
+        return lookup.await()
+    }
+
+    private suspend fun resolveNow(
+        song: Song,
+        input: MatchInput,
+        persistOverride: Boolean,
+        force: Boolean,
     ): SongMetadata = coroutineScope {
         val existing = metadataDao.get(song.id)
         val now = System.currentTimeMillis()
         val storedOverride = existing?.overrideInput()
-        val requestedInput = input.normalizedFor(song)
+        val requestedInput = input.normalizedFor(song).input
         val effectiveInput = when {
             persistOverride -> requestedInput
             input.matches(song) && storedOverride != null -> storedOverride
@@ -88,7 +122,11 @@ class MetadataRepository(
         }
         val resolvedIdentityInput = fallbackInfo?.toMatchInput(chosenInput) ?: chosenInput
 
-        val searchInputs = buildMetadataSearchInputs(resolvedIdentityInput, fallbackInfo)
+        val searchInputs = buildMetadataSearchInputs(
+            input = resolvedIdentityInput,
+            fallbackInfo = fallbackInfo,
+            alternateInputs = candidateResolution.searchSeeds,
+        )
         currentCoroutineContext().ensureActive()
         val musicBrainzOutcomes = searchInputs.map { candidateInput ->
             async {
@@ -121,7 +159,11 @@ class MetadataRepository(
             bestMusicBrainzMatch.details?.artist.isUnknownArtist()
         ) {
             pickBestGeniusMatch(
-                candidates = searchGeniusCandidates(resolvedIdentityInput, fallbackInfo),
+                candidates = searchGeniusCandidates(
+                    input = resolvedIdentityInput,
+                    fallbackInfo = fallbackInfo,
+                    alternateInputs = candidateResolution.searchSeeds,
+                ),
                 input = resolvedIdentityInput,
             )
         } else {
@@ -267,8 +309,9 @@ class MetadataRepository(
     private suspend fun searchGeniusCandidates(
         input: MatchInput,
         fallbackInfo: LrcLibApi.TrackInfo?,
+        alternateInputs: List<MatchInput>,
     ): List<SearchHit> = coroutineScope {
-        val searchInputs = buildMetadataSearchInputs(input, fallbackInfo)
+        val searchInputs = buildMetadataSearchInputs(input, fallbackInfo, alternateInputs)
         val outcomes = searchInputs.map { candidateInput ->
             async {
                 GeniusApi.searchForMetadata(
@@ -715,70 +758,133 @@ class MetadataRepository(
         val candidates = if (allowAmbiguity) {
             requestedInput.candidateInputsFor(song)
         } else {
-            listOf(requestedInput)
+            listOf(
+                MatchCandidate(
+                    input = requestedInput,
+                    localBias = 0,
+                    preserveAsSearchSeed = false,
+                )
+            )
         }
-        if (candidates.size <= 1) return CandidateResolution(candidates.first(), null)
+        if (candidates.size <= 1) {
+            return CandidateResolution(
+                input = candidates.first().input,
+                fallbackInfo = null,
+                searchSeeds = candidates.filter { it.preserveAsSearchSeed }.map { it.input },
+            )
+        }
 
         val durationSeconds = song.durationMs / 1000
-        var bestResolution = CandidateResolution(candidates.first(), null)
+        var bestResolution = CandidateResolution(
+            input = candidates.first().input,
+            fallbackInfo = null,
+            searchSeeds = candidates.filter { it.preserveAsSearchSeed }.map { it.input },
+        )
         var bestScore = Int.MIN_VALUE
         for (candidate in candidates.take(MAX_IDENTITY_CANDIDATES)) {
             currentCoroutineContext().ensureActive()
             val fallbackInfo = LrcLibApi.findBestTrackInfo(
-                trackName = candidate.title,
-                artistName = candidate.artist,
-                albumName = candidate.album,
+                trackName = candidate.input.title,
+                artistName = candidate.input.artist,
+                albumName = candidate.input.album,
                 durationSeconds = durationSeconds,
             )
             val score = candidate.scoreAgainstFallback(fallbackInfo)
             if (score > bestScore) {
                 bestScore = score
-                bestResolution = CandidateResolution(candidate, fallbackInfo)
+                bestResolution = CandidateResolution(
+                    input = candidate.input,
+                    fallbackInfo = fallbackInfo,
+                    searchSeeds = candidates
+                        .filter { it.preserveAsSearchSeed }
+                        .map { it.input }
+                        .filterNot { it.sameIdentityAs(candidate.input) },
+                )
             }
             if (score >= STRONG_IDENTITY_SCORE) break
         }
         return bestResolution
     }
 
-    private fun MatchInput.normalizedFor(song: Song): MatchInput =
-        LocalMetadataParser.normalizeSong(
+    private fun MatchInput.normalizedFor(song: Song): NormalizedMatchInput =
+        LocalMetadataParser.analyzeSong(
             rawTitle = title.trim().ifBlank { song.title },
             rawArtist = LocalMetadataParser.cleanArtist(artist).ifBlank { song.artist },
             rawAlbum = album.trim().ifBlank { song.album },
             displayName = song.dataPath.substringAfterLast('/').substringAfterLast('\\'),
         ).let { parsed ->
-            MatchInput(
-                title = parsed.title,
-                artist = parsed.artist,
-                album = parsed.album,
+            NormalizedMatchInput(
+                input = MatchInput(
+                    title = parsed.identity.title,
+                    artist = parsed.identity.artist,
+                    album = parsed.identity.album,
+                ),
+                parserAnalysis = parsed,
             )
         }
 
-    private fun MatchInput.candidateInputsFor(song: Song): List<MatchInput> {
+    internal fun MatchInput.candidateInputsFor(song: Song): List<MatchCandidate> {
         val normalizedTitle = title.trim().ifBlank { song.title }
         val normalizedArtist = LocalMetadataParser.cleanArtist(artist).ifBlank { song.artist }
         val displayName = song.dataPath.substringAfterLast('/').substringAfterLast('\\')
-        val rankedCandidates = LocalMetadataParser.rankedIdentityCandidates(
+        val analysis = LocalMetadataParser.analyzeSong(
             rawTitle = normalizedTitle,
             rawArtist = normalizedArtist,
+            rawAlbum = album,
             displayName = displayName,
         )
+        val rankedCandidates = analysis.rankedCandidates
+        val filenameCandidates = LocalMetadataParser.rankedIdentityCandidates(
+            rawTitle = "",
+            rawArtist = "",
+            displayName = displayName,
+        ).filter { it.fromDash }
 
         return buildList {
-            add(this@candidateInputsFor)
+            add(
+                MatchCandidate(
+                    input = analysis.inputWithAlbum(album),
+                    localBias = if (analysis.dashedAssessment?.ambiguous == true) AMBIGUOUS_LOCAL_IDENTITY_PENALTY else 0,
+                    preserveAsSearchSeed = false,
+                )
+            )
             rankedCandidates.forEach { candidate ->
                 add(
-                    MatchInput(
-                        title = candidate.title,
-                        artist = candidate.artist,
-                        album = album,
+                    MatchCandidate(
+                        input = MatchInput(
+                            title = candidate.title,
+                            artist = candidate.artist,
+                            album = album,
+                        ).normalizedFor(song).input,
+                        localBias = if (candidate.fromDash && analysis.dashedAssessment?.ambiguous == true) 0 else 4,
+                        preserveAsSearchSeed = candidate.fromDash && analysis.dashedAssessment?.ambiguous == true,
+                    )
+                )
+            }
+            filenameCandidates.forEach { candidate ->
+                add(
+                    MatchCandidate(
+                        input = MatchInput(
+                            title = candidate.title,
+                            artist = candidate.artist,
+                            album = album,
+                        ).normalizedFor(song).input,
+                        localBias = 0,
+                        preserveAsSearchSeed = true,
                     )
                 )
             }
         }
-            .map { it.normalizedFor(song) }
-            .distinctBy { "${it.title.cleanKey()}|${it.artist.cleanKey()}|${it.album.cleanKey()}" }
+            .reversed()
+            .distinctBy { "${it.input.title.cleanKey()}|${it.input.artist.cleanKey()}|${it.input.album.cleanKey()}" }
+            .reversed()
     }
+
+    internal fun repositorySearchInputsFor(
+        input: MatchInput,
+        fallbackInfo: LrcLibApi.TrackInfo?,
+        alternateInputs: List<MatchInput> = emptyList(),
+    ): List<MatchInput> = buildMetadataSearchInputs(input, fallbackInfo, alternateInputs)
 
     private fun MatchInput.matches(song: Song): Boolean =
         title == song.title && artist == song.artist && album == song.album
@@ -869,11 +975,13 @@ class MetadataRepository(
     private fun buildMetadataSearchInputs(
         input: MatchInput,
         fallbackInfo: LrcLibApi.TrackInfo?,
+        alternateInputs: List<MatchInput> = emptyList(),
     ): List<MatchInput> {
-        val titleCandidates = listOf(
-            input.title,
-            fallbackInfo?.title.orEmpty(),
-        )
+        val titleCandidates = buildList {
+            add(input.title)
+            add(fallbackInfo?.title.orEmpty())
+            alternateInputs.forEach { add(it.title) }
+        }
             .map { LocalMetadataParser.cleanTitle(it, input.artist) }
             .filter { it.isNotBlank() }
             .distinctBy { it.cleanKey() }
@@ -881,21 +989,27 @@ class MetadataRepository(
         val artistCandidates = buildList {
             addAll(LocalMetadataParser.artistVariants(input.artist))
             addAll(LocalMetadataParser.artistVariants(fallbackInfo?.artist.orEmpty()))
+            alternateInputs.forEach { addAll(LocalMetadataParser.artistVariants(it.artist)) }
             if (input.artist.isNotBlank()) add(input.artist)
             if (!fallbackInfo?.artist.isNullOrBlank()) add(fallbackInfo?.artist.orEmpty())
+            alternateInputs.forEach { if (it.artist.isNotBlank()) add(it.artist) }
             add("")
         }
             .distinctBy { it.cleanKey() }
 
-        val albumCandidates = listOf(
-            input.album,
-            fallbackInfo?.album.orEmpty(),
-            "",
-        )
+        val albumCandidates = buildList {
+            add(input.album)
+            add(fallbackInfo?.album.orEmpty())
+            alternateInputs.forEach { add(it.album) }
+            add("")
+        }
             .filter { it.isBlank() || it.isKnownAlbum() }
             .distinctBy { it.cleanKey() }
 
         return buildList {
+            add(input)
+            alternateInputs.forEach { add(it) }
+            fallbackInfo?.toMatchInput(input)?.let { add(it) }
             titleCandidates.forEach { title ->
                 artistCandidates.forEach { artist ->
                     albumCandidates.forEach { album ->
@@ -903,7 +1017,9 @@ class MetadataRepository(
                     }
                 }
             }
-        }.distinct().take(MAX_SEARCH_INPUTS)
+        }
+            .distinctBy { "${it.title.cleanKey()}|${it.artist.cleanKey()}|${it.album.cleanKey()}" }
+            .take(MAX_SEARCH_INPUTS)
     }
 
     private fun LrcLibApi.TrackInfo.toMatchInput(fallbackInput: MatchInput): MatchInput =
@@ -951,6 +1067,18 @@ class MetadataRepository(
     private data class CandidateResolution(
         val input: MatchInput,
         val fallbackInfo: LrcLibApi.TrackInfo?,
+        val searchSeeds: List<MatchInput>,
+    )
+
+    internal data class MatchCandidate(
+        val input: MatchInput,
+        val localBias: Int,
+        val preserveAsSearchSeed: Boolean,
+    )
+
+    private data class NormalizedMatchInput(
+        val input: MatchInput,
+        val parserAnalysis: LocalIdentityAnalysis,
     )
 
     private fun GeniusMatch.toMatchInput(fallbackInput: MatchInput): MatchInput = MatchInput(
@@ -974,16 +1102,28 @@ class MetadataRepository(
         const val MAX_ARTWORK_PAIRS = 8
         const val MAX_IDENTITY_CANDIDATES = 3
         const val STRONG_IDENTITY_SCORE = 92
+        const val AMBIGUOUS_LOCAL_IDENTITY_PENALTY = -16
     }
 
-    private fun MatchInput.scoreAgainstFallback(fallbackInfo: LrcLibApi.TrackInfo?): Int {
+    private fun MatchCandidate.scoreAgainstFallback(fallbackInfo: LrcLibApi.TrackInfo?): Int {
         if (fallbackInfo == null) return 0
         var score = 0
-        if (fallbackInfo.title.cleanKey() == title.cleanKey()) score += 44
-        if (artist.isKnownArtist() && fallbackInfo.artist.cleanKey() == artist.cleanKey()) score += 34
-        if (album.isKnownAlbum() && fallbackInfo.album.cleanKey() == album.cleanKey()) score += 16
-        if (fallbackInfo.artist.isKnownArtist() && artist.isUnknownArtist()) score += 18
+        if (fallbackInfo.title.cleanKey() == input.title.cleanKey()) score += 44
+        if (input.artist.isKnownArtist() && fallbackInfo.artist.cleanKey() == input.artist.cleanKey()) score += 34
+        if (input.album.isKnownAlbum() && fallbackInfo.album.cleanKey() == input.album.cleanKey()) score += 16
+        if (fallbackInfo.artist.isKnownArtist() && input.artist.isUnknownArtist()) score += 18
         if (fallbackInfo.plainLyrics?.isNotBlank() == true || fallbackInfo.syncedLyrics?.isNotBlank() == true) score += 8
-        return score
+        return score + localBias
     }
+
+    private fun MatchInput.sameIdentityAs(other: MatchInput): Boolean =
+        title.cleanKey() == other.title.cleanKey() &&
+            artist.cleanKey() == other.artist.cleanKey() &&
+            album.cleanKey() == other.album.cleanKey()
+
+    private fun LocalIdentityAnalysis.inputWithAlbum(albumOverride: String): MatchInput = MatchInput(
+        title = identity.title,
+        artist = identity.artist,
+        album = LocalMetadataParser.cleanAlbum(albumOverride).ifBlank { identity.album },
+    )
 }

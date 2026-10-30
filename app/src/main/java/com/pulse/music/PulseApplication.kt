@@ -18,7 +18,8 @@ import kotlinx.coroutines.launch
  * so they can be shared across ViewModels without a DI framework.
  */
 class PulseApplication : Application() {
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Outlives every screen and ViewModel, for writes that must finish (e.g. saving the player session). */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val database: PulseDatabase by lazy { PulseDatabase.create(this) }
     val scanner: MusicScanner by lazy { MusicScanner(this) }

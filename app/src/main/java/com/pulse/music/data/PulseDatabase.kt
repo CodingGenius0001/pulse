@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SongMetadata::class,
         SongLyrics::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class PulseDatabase : RoomDatabase() {
@@ -30,7 +30,7 @@ abstract class PulseDatabase : RoomDatabase() {
                 PulseDatabase::class.java,
                 "pulse.db",
             )
-                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_5, MIGRATION_2_5, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .build()
         }
 
@@ -127,6 +127,14 @@ abstract class PulseDatabase : RoomDatabase() {
                     END
                     """.trimIndent()
                 )
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!db.hasColumn("songs", "trackNumber")) {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN trackNumber INTEGER NOT NULL DEFAULT 0")
+                }
             }
         }
 

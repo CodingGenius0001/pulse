@@ -1,5 +1,7 @@
 package com.pulse.music.ui
 
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInVertically
@@ -35,12 +37,24 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.pulse.music.PulseApplication
+import com.pulse.music.data.Song
 import com.pulse.music.player.PlayerViewModel
+import com.pulse.music.ui.components.AddToPlaylistDialog
+import com.pulse.music.ui.components.LocalCurrentSongId
+import com.pulse.music.ui.components.LocalSongActions
+import com.pulse.music.ui.components.LocalSongMetadata
+import com.pulse.music.ui.components.SongActions
+import com.pulse.music.ui.components.SongActionsSheet
+import com.pulse.music.ui.components.SongMenuItem
+import com.pulse.music.ui.screens.CollectionRef
+import com.pulse.music.ui.screens.CollectionScreen
 import com.pulse.music.ui.components.BottomNavContainer
 import com.pulse.music.ui.components.Destination
 import com.pulse.music.ui.components.MiniPlayer
@@ -58,12 +72,14 @@ import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
 import com.pulse.music.util.ArtworkColorExtractor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Root composable. Owns the nav controller, shared ViewModels, bottom nav,
- * mini-player, and Now Playing / Queue overlays.
+ * mini-player, Now Playing / Queue overlays, and the song menu.
  */
 @Composable
 fun PulseApp(
@@ -74,26 +90,28 @@ fun PulseApp(
     val libraryVm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory)
     val playerVm: PlayerViewModel = viewModel(factory = PlayerViewModel.Factory())
     val updateVm: UpdateViewModel = viewModel(factory = UpdateViewModel.Factory)
-    val playbackState by playerVm.state.collectAsStateWithLifecycle()
+    // Only the fields the root needs, so position ticks don't recompose every screen.
+    val currentSong by remember(playerVm) {
+        playerVm.state.map { it.currentSong }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = null)
+    val isPlaying by remember(playerVm) {
+        playerVm.state.map { it.isPlaying }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
     val updateState by updateVm.state.collectAsStateWithLifecycle()
+    val metadataById by libraryVm.metadataById.collectAsStateWithLifecycle()
+    val playlists by libraryVm.playlists.collectAsStateWithLifecycle()
     val app = remember { PulseApplication.get() }
     val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
-    val currentSong = playbackState.currentSong
-    val currentMetadata by if (currentSong != null) {
-        app.metadataRepository.observe(currentSong.id).collectAsStateWithLifecycle(initialValue = null)
-    } else {
-        remember { mutableStateOf(null) }
-    }
-    val artworkUrl = currentMetadata?.artworkUrl?.takeIf(String::isNotBlank)
+    val artworkUrl = currentSong?.let { metadataById[it.id] }?.artworkUrl?.takeIf(String::isNotBlank)
     var artworkColor by remember(currentSong?.id, artworkUrl) { mutableStateOf<Color?>(null) }
     LaunchedEffect(currentSong?.id, artworkUrl) {
         artworkColor = currentSong?.let { ArtworkColorExtractor.dominantColor(context, it, artworkUrl) }
     }
     val backgroundTint by animateColorAsState(
         targetValue = artworkColor
-            ?.copy(alpha = if (playbackState.isPlaying) 0.16f else 0.09f)
+            ?.copy(alpha = if (isPlaying) 0.16f else 0.09f)
             ?: Color.Transparent,
         label = "backgroundTint",
     )
@@ -103,6 +121,8 @@ fun PulseApp(
     var changelogDismissed by remember { mutableStateOf(false) }
     var showAppOpenUpdatePrompt by remember { mutableStateOf(false) }
     var pendingChangelog by remember { mutableStateOf<UpdateRepository.PendingChangelog?>(null) }
+    var songMenu by remember { mutableStateOf<Pair<Song, List<SongMenuItem>>?>(null) }
+    var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
     LaunchedEffect(Unit) {
         pendingChangelog = app.updateRepository.pendingChangelogForCurrentInstall()
     }
@@ -110,6 +130,52 @@ fun PulseApp(
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // Detail pages (albums, playlists...) keep the tab they were opened from highlighted.
+    var selectedTabRoute by remember { mutableStateOf(Destination.ForYou.route) }
+    LaunchedEffect(currentRoute) {
+        if (Destination.entries.any { it.route == currentRoute }) selectedTabRoute = currentRoute!!
+    }
+
+    fun toast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    fun openCollection(route: String) {
+        showNowPlaying = false
+        showQueue = false
+        navController.navigate(route) { launchSingleTop = true }
+    }
+
+    val songActions = remember(playerVm, libraryVm) {
+        SongActions(
+            play = { songs, index ->
+                playerVm.playQueue(songs, index)
+            },
+            openMenu = { song, extras -> songMenu = song to extras },
+            playNext = { song ->
+                playerVm.playNext(song)
+                toast("Playing next")
+            },
+            addToQueue = { song ->
+                if (playerVm.isQueued(song.id)) {
+                    toast("Already in the queue")
+                } else {
+                    playerVm.addToQueue(song)
+                    toast("Added to queue")
+                }
+            },
+            toggleLike = { song -> playerVm.toggleLike(song) },
+            addToPlaylist = { song -> addToPlaylistSong = song },
+            openAlbum = { song ->
+                val album = LibraryIndex.albumNameFor(song, libraryVm.metadataById.value[song.id])
+                openCollection(Routes.album(LibraryIndex.albumKey(album)))
+            },
+            openArtist = { song ->
+                val artist = LibraryIndex.artistNameFor(song, libraryVm.metadataById.value[song.id])
+                openCollection(Routes.artist(LibraryIndex.artistKey(artist)))
+            },
+        )
+    }
 
     LaunchedEffect(Unit) {
         val info = withContext(Dispatchers.IO) {
@@ -141,8 +207,20 @@ fun PulseApp(
                 currentRoute != Destination.Settings.route
     }
 
+    val onSongTap: (List<Song>, Int) -> Unit = remember(playerVm) {
+        { songs, index -> playerVm.playQueue(songs, index) }
+    }
+    val onShuffle: (List<Song>) -> Unit = remember(playerVm) {
+        { songs -> playerVm.playShuffled(songs) }
+    }
+
     PulseTheme(accentColor = artworkColor) {
-        CompositionLocalProvider(LocalPulseBackgroundTint provides backgroundTint) {
+        CompositionLocalProvider(
+            LocalPulseBackgroundTint provides backgroundTint,
+            LocalSongMetadata provides metadataById,
+            LocalSongActions provides songActions,
+            LocalCurrentSongId provides currentSong?.id,
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -179,35 +257,27 @@ fun PulseApp(
                                 ForYouScreen(
                                     vm = libraryVm,
                                     updateVm = updateVm,
-                                    onSongTap = { songs, index ->
-                                        playerVm.playQueue(songs, index)
-                                        showNowPlaying = true
-                                    },
-                                    onHeroPlay = { songs ->
-                                        playerVm.playQueue(songs, 0)
-                                        showNowPlaying = true
-                                    },
+                                    onSongTap = onSongTap,
+                                    onShuffle = onShuffle,
                                     onOpenSettings = {
                                         navigateTo(navController, Destination.Settings)
                                     },
+                                    onOpenCollection = { route -> openCollection(route) },
                                 )
                             }
                             composable(Destination.Library.route) {
                                 LibraryScreen(
                                     vm = libraryVm,
-                                    onSongTap = { songs, index ->
-                                        playerVm.playQueue(songs, index)
-                                        showNowPlaying = true
-                                    },
+                                    onSongTap = onSongTap,
+                                    onShuffle = onShuffle,
+                                    onOpenCollection = { route -> openCollection(route) },
                                 )
                             }
                             composable(Destination.Search.route) {
                                 SearchScreen(
                                     vm = libraryVm,
-                                    onSongTap = { songs, index ->
-                                        playerVm.playQueue(songs, index)
-                                        showNowPlaying = true
-                                    },
+                                    onSongTap = onSongTap,
+                                    onOpenCollection = { route -> openCollection(route) },
                                 )
                             }
                             composable(Destination.Settings.route) {
@@ -215,6 +285,42 @@ fun PulseApp(
                                     vm = libraryVm,
                                     updateVm = updateVm,
                                 )
+                            }
+                            composable(Routes.ALBUM) { entry ->
+                                CollectionRoute(
+                                    ref = CollectionRef.Album(entry.arguments?.getString("key").orEmpty()),
+                                    libraryVm = libraryVm,
+                                    navController = navController,
+                                    onSongTap = onSongTap,
+                                    onShuffle = onShuffle,
+                                )
+                            }
+                            composable(Routes.ARTIST) { entry ->
+                                CollectionRoute(
+                                    ref = CollectionRef.Artist(entry.arguments?.getString("key").orEmpty()),
+                                    libraryVm = libraryVm,
+                                    navController = navController,
+                                    onSongTap = onSongTap,
+                                    onShuffle = onShuffle,
+                                )
+                            }
+                            composable(
+                                Routes.PLAYLIST,
+                                arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                            ) { entry ->
+                                CollectionRoute(
+                                    ref = CollectionRef.Playlist(entry.arguments?.getLong("id") ?: -1L),
+                                    libraryVm = libraryVm,
+                                    navController = navController,
+                                    onSongTap = onSongTap,
+                                    onShuffle = onShuffle,
+                                )
+                            }
+                            composable(Routes.LIKED) {
+                                CollectionRoute(CollectionRef.Liked, libraryVm, navController, onSongTap, onShuffle)
+                            }
+                            composable(Routes.RECENTLY_ADDED) {
+                                CollectionRoute(CollectionRef.RecentlyAdded, libraryVm, navController, onSongTap, onShuffle)
                             }
                         }
                     }
@@ -226,19 +332,17 @@ fun PulseApp(
                             exit = slideOutVertically { it },
                         ) {
                             currentSong?.let { song ->
-                                MiniPlayer(
+                                MiniPlayerHost(
+                                    playerVm = playerVm,
                                     song = song,
-                                    isPlaying = playbackState.isPlaying,
+                                    isPlaying = isPlaying,
                                     onTap = { showNowPlaying = true },
-                                    onPlayPause = { playerVm.playOrPause() },
-                                    onSkipForward10 = { playerVm.seekForward10() },
-                                    onNext = { playerVm.next() },
                                 )
                             }
                         }
                         BottomNavContainer {
                             PulseBottomNav(
-                                currentRoute = currentRoute,
+                                currentRoute = selectedTabRoute,
                                 onNavigate = { destination ->
                                     navigateTo(navController, destination)
                                 },
@@ -266,6 +370,32 @@ fun PulseApp(
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) {
                     QueueScreen(onBack = { showQueue = false })
+                }
+
+                songMenu?.let { (song, extras) ->
+                    // Show the freshest copy (e.g. liked state) of the song.
+                    val liveSong = libraryVm.allSongs.collectAsStateWithLifecycle().value
+                        .firstOrNull { it.id == song.id } ?: song
+                    SongActionsSheet(
+                        song = liveSong,
+                        extras = extras,
+                        actions = songActions,
+                        onDismiss = { songMenu = null },
+                    )
+                }
+
+                addToPlaylistSong?.let { song ->
+                    AddToPlaylistDialog(
+                        playlists = playlists.filter { it.systemType == null },
+                        onDismiss = { addToPlaylistSong = null },
+                        onCreatePlaylist = { name -> libraryVm.createPlaylist(name) },
+                        onAddToPlaylist = { playlistId ->
+                            libraryVm.addSongToPlaylist(playlistId, song.id)
+                            val name = playlists.firstOrNull { it.id == playlistId }?.name
+                            toast(if (name != null) "Added to $name" else "Added to playlist")
+                        },
+                        launchSuspend = { block -> scope.launch { block() } },
+                    )
                 }
 
                 val changelog = pendingChangelog
@@ -300,6 +430,58 @@ fun PulseApp(
             }
         }
     }
+}
+
+/** Routes for the detail pages. Tab routes live on [Destination]. */
+object Routes {
+    const val ALBUM = "album/{key}"
+    const val ARTIST = "artist/{key}"
+    const val PLAYLIST = "playlist/{id}"
+    const val LIKED = "collection/liked"
+    const val RECENTLY_ADDED = "collection/recent"
+
+    fun album(key: String) = "album/${Uri.encode(key)}"
+    fun artist(key: String) = "artist/${Uri.encode(key)}"
+    fun playlist(id: Long) = "playlist/$id"
+}
+
+@Composable
+private fun CollectionRoute(
+    ref: CollectionRef,
+    libraryVm: LibraryViewModel,
+    navController: NavHostController,
+    onSongTap: (List<Song>, Int) -> Unit,
+    onShuffle: (List<Song>) -> Unit,
+) {
+    CollectionScreen(
+        ref = ref,
+        vm = libraryVm,
+        onBack = { navController.popBackStack() },
+        onPlay = onSongTap,
+        onShuffle = onShuffle,
+        onOpenAlbum = { key -> navController.navigate(Routes.album(key)) },
+    )
+}
+
+/** Collects playback position here so ticks only recompose the mini player. */
+@Composable
+private fun MiniPlayerHost(
+    playerVm: PlayerViewModel,
+    song: Song,
+    isPlaying: Boolean,
+    onTap: () -> Unit,
+) {
+    val state by playerVm.state.collectAsStateWithLifecycle()
+    MiniPlayer(
+        song = song,
+        isPlaying = isPlaying,
+        progress = {
+            if (state.durationMs > 0) state.positionMs.toFloat() / state.durationMs else 0f
+        },
+        onTap = onTap,
+        onPlayPause = { playerVm.playOrPause() },
+        onNext = { playerVm.next() },
+    )
 }
 
 private fun navigateTo(navController: NavHostController, destination: Destination) {

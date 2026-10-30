@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /**
@@ -42,6 +43,13 @@ class UserPreferences(private val context: Context) {
     private val lastLibraryScanAtKey = longPreferencesKey("last_library_scan_at")
     private val lastMetadataRefreshAtKey = longPreferencesKey("last_metadata_refresh_at")
     private val recentLibrarySearchesKey = stringPreferencesKey("recent_library_searches")
+    private val libraryScanFormatKey = intPreferencesKey("library_scan_format")
+    private val sessionQueueKey = stringPreferencesKey("session_queue")
+    private val sessionOriginalQueueKey = stringPreferencesKey("session_original_queue")
+    private val sessionIndexKey = intPreferencesKey("session_index")
+    private val sessionPositionKey = longPreferencesKey("session_position")
+    private val sessionShuffleKey = booleanPreferencesKey("session_shuffle")
+    private val sessionRepeatKey = intPreferencesKey("session_repeat")
 
     val theme: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         ThemePreference.fromValue(prefs[themeKey])
@@ -95,6 +103,40 @@ class UserPreferences(private val context: Context) {
             .map(String::trim)
             .filter(String::isNotBlank)
             .take(MAX_RECENT_LIBRARY_SEARCHES)
+    }
+
+    /** Bumped when the scanner starts reading new fields, to force one full rescan. */
+    val libraryScanFormat: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[libraryScanFormatKey] ?: 0
+    }
+
+    suspend fun setLibraryScanFormat(version: Int) {
+        context.dataStore.edit { it[libraryScanFormatKey] = version }
+    }
+
+    suspend fun playbackSession(): PlaybackSession? {
+        val prefs = context.dataStore.data.first()
+        val queue = prefs[sessionQueueKey].toIdList()
+        if (queue.isEmpty()) return null
+        return PlaybackSession(
+            queueIds = queue,
+            originalQueueIds = prefs[sessionOriginalQueueKey].toIdList(),
+            index = prefs[sessionIndexKey] ?: 0,
+            positionMs = prefs[sessionPositionKey] ?: 0L,
+            shuffleEnabled = prefs[sessionShuffleKey] ?: false,
+            repeatMode = prefs[sessionRepeatKey] ?: 0,
+        )
+    }
+
+    suspend fun setPlaybackSession(session: PlaybackSession) {
+        context.dataStore.edit {
+            it[sessionQueueKey] = session.queueIds.joinToString(",")
+            it[sessionOriginalQueueKey] = session.originalQueueIds.joinToString(",")
+            it[sessionIndexKey] = session.index
+            it[sessionPositionKey] = session.positionMs
+            it[sessionShuffleKey] = session.shuffleEnabled
+            it[sessionRepeatKey] = session.repeatMode
+        }
     }
 
     suspend fun setTheme(theme: ThemePreference) {
@@ -166,6 +208,19 @@ class UserPreferences(private val context: Context) {
 
 private const val RECENT_SEARCH_SEPARATOR = "\u001F"
 private const val MAX_RECENT_LIBRARY_SEARCHES = 5
+
+private fun String?.toIdList(): List<Long> =
+    orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() }
+
+/** The last queue the player had, so a cold start can pick up where it left off. */
+data class PlaybackSession(
+    val queueIds: List<Long>,
+    val originalQueueIds: List<Long>,
+    val index: Int,
+    val positionMs: Long,
+    val shuffleEnabled: Boolean,
+    val repeatMode: Int,
+)
 
 data class PendingUpdateInfo(
     val buildNumber: Int,

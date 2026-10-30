@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.pulse.music.data.Playlist
 import com.pulse.music.data.Song
+import com.pulse.music.data.displayWith
 import com.pulse.music.ui.theme.PulseTheme
 
 @Composable
@@ -69,11 +70,13 @@ fun AddToPlaylistDialog(
         title = { Text("Add to playlist", color = MaterialTheme.colorScheme.onBackground) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SearchField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it.take(60) },
-                    placeholder = "Search playlists",
-                )
+                if (playlists.size > 4) {
+                    SearchField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it.take(60) },
+                        placeholder = "Search playlists",
+                    )
+                }
 
                 if (visiblePlaylists.isEmpty()) {
                     Text(
@@ -161,231 +164,24 @@ fun AddToPlaylistDialog(
 }
 
 @Composable
-fun PlaylistDetailDialog(
-    playlist: Playlist,
-    playlistSongs: List<Song>,
-    allSongs: List<Song>,
-    onDismiss: () -> Unit,
-    onSongTap: (List<Song>, Int) -> Unit,
-    onPlayPlaylist: (List<Song>) -> Unit,
-    onRenamePlaylist: suspend (String) -> Unit,
-    onDeletePlaylist: suspend () -> Unit,
-    onAddSong: suspend (Long) -> Unit,
-    onRemoveSong: suspend (Long) -> Unit,
-    launchSuspend: (suspend () -> Unit) -> Unit,
-) {
-    var showPicker by remember { mutableStateOf(false) }
-    var showRename by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-    val playlistSongIds = remember(playlistSongs) { playlistSongs.map { it.id }.toSet() }
-    val addableSongs = remember(allSongs, playlistSongIds) { allSongs.filterNot { it.id in playlistSongIds } }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.86f)
-                .clip(RoundedCornerShape(28.dp))
-                .background(PulseTheme.colors.surface)
-                .border(1.dp, PulseTheme.colors.line2, RoundedCornerShape(28.dp))
-                .padding(18.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = playlist.name,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.headlineMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${playlistSongs.size} songs",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                CircleButton(onClick = onDismiss, size = 40.dp) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Close playlist",
-                        tint = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ActionChip(
-                    modifier = Modifier.weight(1f),
-                    label = "Play",
-                    icon = Icons.Filled.PlayArrow,
-                    emphasized = true,
-                    onClick = { if (playlistSongs.isNotEmpty()) onPlayPlaylist(playlistSongs) },
-                )
-                ActionChip(
-                    modifier = Modifier.weight(1f),
-                    label = "Add songs",
-                    icon = Icons.Filled.Add,
-                    onClick = { showPicker = true },
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ActionChip(
-                    modifier = Modifier.weight(1f),
-                    label = "Rename",
-                    icon = Icons.Filled.Edit,
-                    onClick = { showRename = true },
-                )
-                ActionChip(
-                    modifier = Modifier.weight(1f),
-                    label = "Delete",
-                    icon = Icons.Filled.DeleteOutline,
-                    onClick = { showDeleteConfirm = true },
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            if (playlistSongs.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(PulseTheme.colors.surfaceElevated)
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "No songs here yet.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(playlistSongs) { song ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(PulseTheme.colors.surfaceElevated)
-                                .clickable {
-                                    val index = playlistSongs.indexOfFirst { it.id == song.id }
-                                    if (index >= 0) onSongTap(playlistSongs, index)
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            AlbumArt(song = song, cornerRadius = 12.dp, modifier = Modifier.size(46.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = song.title,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = song.artist,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(PulseTheme.colors.surfaceSoft)
-                                    .clickable {
-                                        launchSuspend { onRemoveSong(song.id) }
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "Remove song",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showPicker) {
-        SongPickerDialog(
-            title = "Add songs to ${playlist.name}",
-            songs = addableSongs,
-            onDismiss = { showPicker = false },
-            onAddSong = { song ->
-                launchSuspend { onAddSong(song.id) }
-            },
-        )
-    }
-
-    if (showRename) {
-        RenamePlaylistDialog(
-            currentName = playlist.name,
-            onDismiss = { showRename = false },
-            onSave = { name ->
-                launchSuspend { onRenamePlaylist(name) }
-                showRename = false
-            },
-        )
-    }
-
-    if (showDeleteConfirm) {
-        ConfirmDeletePlaylistDialog(
-            playlistName = playlist.name,
-            onDismiss = { showDeleteConfirm = false },
-            onDelete = {
-                launchSuspend { onDeletePlaylist() }
-                showDeleteConfirm = false
-                onDismiss()
-            },
-        )
-    }
-}
-
-@Composable
-private fun SongPickerDialog(
+internal fun SongPickerDialog(
     title: String,
     songs: List<Song>,
     onDismiss: () -> Unit,
     onAddSong: (Song) -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val filteredSongs = remember(songs, searchQuery) {
+    val metadata = LocalSongMetadata.current
+    val filteredSongs = remember(songs, searchQuery, metadata) {
         val query = searchQuery.trim().lowercase()
         if (query.isBlank()) {
             songs
         } else {
             songs.filter { song ->
-                song.title.lowercase().contains(query) ||
-                    song.artist.lowercase().contains(query) ||
-                    song.album.lowercase().contains(query)
+                val display = song.displayWith(metadata[song.id])
+                display.title.lowercase().contains(query) ||
+                    display.artist.lowercase().contains(query) ||
+                    display.album.lowercase().contains(query)
             }
         }
     }
@@ -450,7 +246,8 @@ private fun SongPickerDialog(
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(filteredSongs) { song ->
+                    items(filteredSongs, key = { it.id }) { song ->
+                        val display = song.display()
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -464,16 +261,16 @@ private fun SongPickerDialog(
                             AlbumArt(song = song, cornerRadius = 12.dp, modifier = Modifier.size(46.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = song.title,
+                                    text = display.title,
                                     color = MaterialTheme.colorScheme.onBackground,
                                     style = MaterialTheme.typography.titleSmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = listOf(song.artist, song.album.takeIf { it.isNotBlank() })
+                                    text = listOf(display.artist, display.album.takeIf { it.isKnownAlbumName() })
                                         .filterNotNull()
-                                        .joinToString(" - "),
+                                        .joinToString(" · "),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,
@@ -503,7 +300,7 @@ private fun SongPickerDialog(
 }
 
 @Composable
-private fun RenamePlaylistDialog(
+internal fun RenamePlaylistDialog(
     currentName: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
@@ -535,7 +332,7 @@ private fun RenamePlaylistDialog(
 }
 
 @Composable
-private fun ConfirmDeletePlaylistDialog(
+internal fun ConfirmDeletePlaylistDialog(
     playlistName: String,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
@@ -607,37 +404,5 @@ private fun SearchField(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-    }
-}
-
-@Composable
-private fun ActionChip(
-    modifier: Modifier = Modifier,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    emphasized: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (emphasized) PulseTheme.colors.accentCream else PulseTheme.colors.surfaceElevated)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (emphasized) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.size(8.dp))
-        Text(
-            text = label,
-            color = if (emphasized) PulseTheme.colors.onPrimary else MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.labelLarge,
-        )
     }
 }

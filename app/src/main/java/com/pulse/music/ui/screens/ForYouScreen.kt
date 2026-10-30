@@ -1,6 +1,8 @@
 package com.pulse.music.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,12 +19,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,27 +36,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.music.data.Song
 import com.pulse.music.ui.LibraryViewModel
+import com.pulse.music.ui.Routes
 import com.pulse.music.ui.components.AlbumArt
 import com.pulse.music.ui.components.AlbumMosaic
 import com.pulse.music.ui.components.BottomBarContentPadding
-import com.pulse.music.ui.components.CircleButton
+import com.pulse.music.ui.components.LocalSongActions
+import com.pulse.music.ui.components.display
 import com.pulse.music.ui.theme.PulseTheme
 import com.pulse.music.update.UpdateState
 import com.pulse.music.update.UpdateViewModel
+import com.pulse.music.util.songCountLabel
 
 @Composable
 fun ForYouScreen(
     vm: LibraryViewModel,
     updateVm: UpdateViewModel,
     onSongTap: (List<Song>, Int) -> Unit,
-    onHeroPlay: (List<Song>) -> Unit,
+    onShuffle: (List<Song>) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenCollection: (String) -> Unit,
 ) {
     val allSongs by vm.allSongs.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
@@ -69,7 +76,27 @@ fun ForYouScreen(
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         item { AppBar(userName = userName, onOpenSettings = onOpenSettings) }
-        item { HeroCard(topPlayed.firstOrNull() ?: allSongs.firstOrNull(), topPlayed.ifEmpty { allSongs.take(12) }, onHeroPlay) }
+        if (allSongs.isEmpty()) {
+            item {
+                EmptyState(
+                    folderExists = folderState.exists,
+                    folderPath = folderState.displayPath,
+                    onCreateFolder = { vm.createPulseFolder() },
+                    onRescan = { vm.rescan() },
+                )
+            }
+        }
+        if (allSongs.isNotEmpty()) {
+            item {
+                HeroCard(
+                    hero = topPlayed.firstOrNull() ?: allSongs.first(),
+                    heroSongs = topPlayed.ifEmpty { allSongs.take(12) },
+                    fromPlays = topPlayed.isNotEmpty(),
+                    onPlay = { songs -> onSongTap(songs, 0) },
+                    onShuffle = onShuffle,
+                )
+            }
+        }
         item { UpdateBanner(updateVm = updateVm, onOpenSettings = onOpenSettings) }
 
         if (recentlyPlayed.isNotEmpty()) {
@@ -78,7 +105,13 @@ fun ForYouScreen(
         }
 
         if (recentlyAdded.isNotEmpty()) {
-            item { SectionHeading("Recently added", "New arrivals waiting to settle in.") }
+            item {
+                SectionHeading(
+                    title = "Recently added",
+                    subtitle = "New arrivals waiting to settle in.",
+                    onSeeAll = { onOpenCollection(Routes.RECENTLY_ADDED) },
+                )
+            }
             item { SongCarousel(songs = recentlyAdded, onTap = { index -> onSongTap(recentlyAdded, index) }) }
         }
 
@@ -90,17 +123,17 @@ fun ForYouScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     MadeForYouCard(
-                        title = "All music",
-                        subtitle = "${allSongs.size} songs",
-                        detail = "Everything you have imported.",
+                        title = "Shuffle everything",
+                        subtitle = songCountLabel(allSongs.size),
+                        detail = "Your whole library in a random order.",
                         thumbnailSongs = allSongs.take(4),
                         seed = "all_music",
-                        onPlay = { onSongTap(allSongs, 0) },
+                        onPlay = { onShuffle(allSongs) },
                     )
                     if (recentlyAdded.size >= 4) {
                         MadeForYouCard(
                             title = "Fresh mix",
-                            subtitle = "${recentlyAdded.size} songs",
+                            subtitle = songCountLabel(recentlyAdded.size),
                             detail = "The newest additions to your collection.",
                             thumbnailSongs = recentlyAdded.take(4),
                             seed = "fresh_mix",
@@ -110,7 +143,7 @@ fun ForYouScreen(
                     if (topPlayed.size >= 4) {
                         MadeForYouCard(
                             title = "On repeat",
-                            subtitle = "${topPlayed.size} songs",
+                            subtitle = songCountLabel(topPlayed.size),
                             detail = "Your most-played run lately.",
                             thumbnailSongs = topPlayed.take(4),
                             seed = "top_played",
@@ -118,17 +151,6 @@ fun ForYouScreen(
                         )
                     }
                 }
-            }
-        }
-
-        if (allSongs.isEmpty()) {
-            item {
-                EmptyState(
-                    folderExists = folderState.exists,
-                    folderPath = folderState.displayPath,
-                    onCreateFolder = { vm.createPulseFolder() },
-                    onRescan = { vm.rescan() },
-                )
             }
         }
     }
@@ -156,13 +178,14 @@ private fun AppBar(userName: String, onOpenSettings: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.horizontalGradient(
                             listOf(PulseTheme.colors.accentViolet, PulseTheme.colors.accentPink),
                         ),
-                    ),
+                    )
+                    .clickable(onClickLabel = "Open profile settings", onClick = onOpenSettings),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -171,24 +194,19 @@ private fun AppBar(userName: String, onOpenSettings: () -> Unit) {
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
-            CircleButton(onClick = onOpenSettings, size = 42.dp) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Open settings",
-                    tint = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
         }
     }
 }
 
 @Composable
 private fun HeroCard(
-    hero: Song?,
+    hero: Song,
     heroSongs: List<Song>,
+    fromPlays: Boolean,
     onPlay: (List<Song>) -> Unit,
+    onShuffle: (List<Song>) -> Unit,
 ) {
+    val display = hero.display()
     Box(
         modifier = Modifier
             .padding(horizontal = 20.dp)
@@ -197,13 +215,11 @@ private fun HeroCard(
             .clip(RoundedCornerShape(32.dp))
             .background(PulseTheme.colors.surfaceElevated),
     ) {
-        if (hero != null) {
-            AlbumArt(
-                song = hero,
-                cornerRadius = 0.dp,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        AlbumArt(
+            song = hero,
+            cornerRadius = 0.dp,
+            modifier = Modifier.fillMaxSize(),
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -224,42 +240,40 @@ private fun HeroCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "FEATURED SELECTION",
+                text = if (fromPlays) "ON REPEAT" else "FROM YOUR LIBRARY",
                 color = Color.White.copy(alpha = 0.76f),
                 style = MaterialTheme.typography.labelSmall,
             )
             Text(
-                text = hero?.album?.ifBlank { "Your library" } ?: "Your library",
+                text = display.title,
                 color = Color.White,
                 style = MaterialTheme.typography.displayLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = if (heroSongs.isEmpty()) "Import music to begin."
-                else "${heroSongs.size} tracks arranged from your most-played run.",
+                text = if (fromPlays) {
+                    "${display.artist} leads your most-played run of ${heroSongs.size} tracks."
+                } else {
+                    "${display.artist} and ${heroSongs.size - 1} more to start with."
+                },
                 color = Color.White.copy(alpha = 0.76f),
                 style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.White.copy(alpha = if (heroSongs.isEmpty()) 0.3f else 0.94f))
-                    .clickable(enabled = heroSongs.isNotEmpty()) { onPlay(heroSongs) }
-                    .padding(horizontal = 18.dp, vertical = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = PulseTheme.colors.onPrimary,
-                    modifier = Modifier.size(16.dp),
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HeroButton(
+                    label = "Play",
+                    icon = Icons.Filled.PlayArrow,
+                    filled = true,
+                    onClick = { onPlay(heroSongs) },
                 )
-                Text(
-                    text = "Play selection",
-                    color = PulseTheme.colors.onPrimary,
-                    style = MaterialTheme.typography.labelLarge,
+                HeroButton(
+                    label = "Shuffle",
+                    icon = Icons.Filled.Shuffle,
+                    filled = false,
+                    onClick = { onShuffle(heroSongs) },
                 )
             }
         }
@@ -267,47 +281,97 @@ private fun HeroCard(
 }
 
 @Composable
-private fun SectionHeading(title: String, subtitle: String) {
-    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.headlineMedium,
+private fun HeroButton(label: String, icon: ImageVector, filled: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (filled) Color.White.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.18f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (filled) Color(0xFF12100E) else Color.White,
+            modifier = Modifier.size(18.dp),
         )
         Text(
-            text = subtitle,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
+            text = label,
+            color = if (filled) Color(0xFF12100E) else Color.White,
+            style = MaterialTheme.typography.labelLarge,
         )
     }
 }
 
 @Composable
+private fun SectionHeading(title: String, subtitle: String, onSeeAll: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Text(
+                text = subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        if (onSeeAll != null) {
+            Text(
+                text = "See all",
+                color = PulseTheme.colors.accentViolet,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(onClick = onSeeAll)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun SongCarousel(songs: List<Song>, onTap: (Int) -> Unit) {
+    val actions = LocalSongActions.current
     LazyRow(
         contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        items(songs.size) { index ->
-            val song = songs[index]
+        itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+            val display = song.display()
             Column(
-                modifier = Modifier.width(118.dp).clickable { onTap(index) },
+                modifier = Modifier
+                    .width(124.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .combinedClickable(
+                        onClick = { onTap(index) },
+                        onLongClick = actions?.let { { it.openMenu(song, emptyList()) } },
+                        onLongClickLabel = "Song options",
+                    ),
             ) {
                 AlbumArt(
                     song = song,
                     cornerRadius = 18.dp,
-                    modifier = Modifier.size(118.dp),
+                    modifier = Modifier.size(124.dp),
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = song.title,
+                    text = display.title,
                     color = MaterialTheme.colorScheme.onBackground,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = song.artist,
+                    text = display.artist,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,

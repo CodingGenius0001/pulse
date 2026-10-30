@@ -24,11 +24,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
-import com.pulse.music.PulseApplication
 import com.pulse.music.data.Song
 import com.pulse.music.data.SongMetadata
 import com.pulse.music.util.gradientFor
@@ -40,7 +38,10 @@ import com.pulse.music.util.gradientFor
  * 3. Deterministic gradient tile.
  *
  * The metadata row is observed, not read once, so covers appear as soon as
- * background enrichment finishes.
+ * background enrichment finishes. This component never triggers lookups
+ * itself: lists render dozens of these, and a lookup per visible row flooded
+ * the metadata providers while scrolling. The library enrichment queue and the
+ * player handle lookups instead.
  */
 @Composable
 fun AlbumArt(
@@ -57,20 +58,11 @@ fun AlbumArt(
             return@Box
         }
 
-        val metadata by PulseApplication.get()
-            .metadataRepository
-            .observe(song.id)
-            .collectAsStateWithLifecycle(initialValue = null)
+        val metadata = LocalSongMetadata.current[song.id]
         val remoteArtUrl = metadata?.artworkUrl?.takeIf(String::isNotBlank)
         val remoteIdentityResolved =
             !metadata?.resolvedTitle.isNullOrBlank() || !metadata?.resolvedArtist.isNullOrBlank()
-        val allowEmbeddedFallback = song.artist.isKnownArtist() && song.album.isKnownAlbum()
-
-        LaunchedEffect(song.id, remoteArtUrl) {
-            if (remoteArtUrl.isNullOrBlank()) {
-                PulseApplication.get().metadataRepository.resolve(song)
-            }
-        }
+        val allowEmbeddedFallback = song.artist.isKnownArtistName() && song.album.isKnownAlbumName()
 
         var useEmbeddedFallback by remember(song.id, remoteArtUrl, remoteIdentityResolved, allowEmbeddedFallback) {
             mutableStateOf(false)
@@ -114,12 +106,6 @@ fun AlbumArt(
         }
     }
 }
-
-private fun String.isKnownArtist(): Boolean =
-    isNotBlank() && !equals("Unknown artist", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
-
-private fun String.isKnownAlbum(): Boolean =
-    isNotBlank() && !equals("Unknown album", ignoreCase = true) && !equals("<unknown>", ignoreCase = true)
 
 @Composable
 private fun MusicNoteFallback(

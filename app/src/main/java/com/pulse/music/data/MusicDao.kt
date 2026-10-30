@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -11,7 +12,9 @@ interface MusicDao {
 
     // -------- Songs --------
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert updates rows in place. REPLACE would delete + reinsert the song,
+    // which fires ON DELETE CASCADE and wipes the song's playlist entries.
+    @Upsert
     suspend fun upsertSongs(songs: List<Song>)
 
     @Query("UPDATE songs SET isAvailable = 0")
@@ -41,13 +44,22 @@ interface MusicDao {
     @Query("SELECT * FROM songs")
     suspend fun getAllSongs(): List<Song>
 
+    @Query("SELECT * FROM songs WHERE id IN (:ids)")
+    suspend fun getSongs(ids: List<Long>): List<Song>
+
+    @Query("SELECT liked FROM songs WHERE id = :id")
+    suspend fun isLiked(id: Long): Boolean?
+
+    @Query("SELECT id FROM songs WHERE liked = 1")
+    fun observeLikedIds(): Flow<List<Long>>
+
     @Query("UPDATE songs SET liked = :liked WHERE id = :id")
     suspend fun setLiked(id: Long, liked: Boolean)
 
     @Query("UPDATE songs SET playCount = playCount + 1, lastPlayedAt = :timestamp WHERE id = :id")
     suspend fun markPlayed(id: Long, timestamp: Long = System.currentTimeMillis())
 
-    @Query("SELECT * FROM songs WHERE isAvailable = 1 ORDER BY playCount DESC LIMIT :limit")
+    @Query("SELECT * FROM songs WHERE isAvailable = 1 AND playCount > 0 ORDER BY playCount DESC, lastPlayedAt DESC LIMIT :limit")
     fun observeTopPlayed(limit: Int = 12): Flow<List<Song>>
 
     @Query("SELECT COUNT(*) FROM songs WHERE isAvailable = 1")
@@ -111,6 +123,17 @@ interface MusicDao {
 
     @Query(
         """
+        SELECT playlist_song_cross_ref.playlistId AS playlistId, COUNT(*) AS songCount
+        FROM playlist_song_cross_ref
+        INNER JOIN songs ON songs.id = playlist_song_cross_ref.songId
+        WHERE songs.isAvailable = 1
+        GROUP BY playlist_song_cross_ref.playlistId
+        """
+    )
+    fun observePlaylistSongCounts(): Flow<List<PlaylistSongCount>>
+
+    @Query(
+        """
         SELECT COUNT(*) FROM playlist_song_cross_ref
         INNER JOIN songs ON songs.id = playlist_song_cross_ref.songId
         WHERE playlist_song_cross_ref.playlistId = :playlistId
@@ -141,3 +164,8 @@ interface MusicDao {
     @Query("DELETE FROM playlist_song_cross_ref WHERE songId = :oldSongId")
     suspend fun deletePlaylistRefsForSong(oldSongId: Long)
 }
+
+data class PlaylistSongCount(
+    val playlistId: Long,
+    val songCount: Int,
+)
